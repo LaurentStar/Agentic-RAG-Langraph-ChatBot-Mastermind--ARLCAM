@@ -17,3 +17,12 @@ class SocailMediaPlatform(Enum):
     EMAIL = 'email'
     DEFUALT = 'defualt'
 
+class PlayerStatus(Enum):
+    DEAD = 'dead'
+    ALIVE = 'alivecl'  
+    HIDDEN = 'hidden'
+    WAITING = 'waiting'
+    DISABLED = 'disabled'
+    ENPOWERED = 'empowered'
+    CLAIRAUDIENT = 'clairaudient'
+
