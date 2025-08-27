@@ -14,6 +14,18 @@ register_player_payload_rest_api_model = api.model('RegisterPlayerPayload', {
 })
 
 
+#---------------------------------------------#
+# JSON RESPONSE OUTPUT MODELS FOR MARSHALLING #
+#---------------------------------------------#
+
+player_data_response_marshal = api.model('PlayerDataResponse', {
+    'status': fields.String(required=True),
+    'status code': fields.Integer(required=True),
+    'message': fields.String(required=True),
+    'player data' : fields.Nested(register_player_payload_rest_api_model, required=True)
+})
+
+
 #---------------------------------#
 # Query Parameter Input Arguments #
 #---------------------------------#

@@ -147,3 +147,8 @@ A chat bot made with agenetic rag technology. LangGraph/LangChain. It host a gam
 
 # Documentation
 https://discordpy.readthedocs.io/en/stable/discord.html
+
+
+# Running Instructions
+- Game Server is factory style. Run app.py
+- Discord. run bot.py

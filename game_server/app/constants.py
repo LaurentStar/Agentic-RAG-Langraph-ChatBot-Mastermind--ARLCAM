@@ -1,6 +1,6 @@
 from enum import Enum
 
-class CardType(Enum):
+class CardType(str,Enum):
     DUKE = 'duke'
     ASSASSIN = 'assassin'  
     CAPTAIN = 'captain'
@@ -8,7 +8,7 @@ class CardType(Enum):
     COURTESSA = 'countessa'
     DEFUALT = 'defualt'
 
-class SocailMediaPlatform(Enum):
+class SocailMediaPlatform(str,Enum):
     TWITTER = 'twitter'
     DISCORD = 'discord'  
     SLACK = 'slack'
@@ -17,9 +17,9 @@ class SocailMediaPlatform(Enum):
     EMAIL = 'email'
     DEFUALT = 'defualt'
 
-class PlayerStatus(Enum):
+class PlayerStatus(str,Enum):
     DEAD = 'dead'
-    ALIVE = 'alivecl'  
+    ALIVE = 'alive'  
     HIDDEN = 'hidden'
     WAITING = 'waiting'
     DISABLED = 'disabled'

@@ -7,7 +7,8 @@ from app.models.postgres_sql_db_models.player import Player
 from app.constants import SocailMediaPlatform, CardType, PlayerStatus
 from app.extensions import db
 from app.extensions import api
-from app.models.rest_api_models.user_command_models import register_player_payload_rest_api_model, retrieve_player_profile_parser
+from app.models.rest_api_models.user_command_models import (
+    register_player_payload_rest_api_model, retrieve_player_profile_parser, player_data_response_marshal)
 
 # ---------------------- Name Spaces ---------------------- #
 user_commands_ns = Namespace('user-commands', description='Command requested by users and bots')
@@ -61,30 +62,35 @@ class RegisterPlayer(Resource):
     
         return make_response(jsonify(response), status_code)
     
-class RetrievePlayerProfile(Resource):
+class RetrievePlayerProfile(Resource): 
     @user_commands_ns.expect(retrieve_player_profile_parser)
     def get(self):
         '''Gather player details based on display name query'''
         args = retrieve_player_profile_parser.parse_args()
-
-
-        # players = db.session.execute(db.select(Player).order_by(Player.display_name)).scalars()
-
-        # player = db.session.execute(db.select(Player).where(Player.display_name == args.get('display_name'))).scalar_one()
-        player = db.session.execute(db.select(Player).where(Player.display_name == args.get('display_name'))).scalar_one_or_none()
+        display_name = args.get('display_name')
+        player = db.session.execute(db.select(Player).where(Player.display_name == display_name)).scalar_one_or_none()
         
-        print('player', player.card_types, type(player), sep='\n')
-        # print(player.one_or_none().card_types)
-         
-   
-        
- 
-
-
-        response = {
-            "status": "success",
-            "message": f'Player Information for {player} successfully retrieved.'}
-        status_code = 200
+        if player:
+            print(f'Player: {display_name} found.')
+            status_code = 200
+            response = {
+                'status': 'success',
+                'message': f"Player Information for '{display_name}' found in player registery.",
+                'player data' : {
+                    'display_name': player.display_name,
+                    'social_media_platform_display_name': player.social_media_platform_display_name,
+                    'social_media_platform': player.social_media_platform,
+                    'card_types': player.card_types,
+                    'player_statuses': player.player_statuses 
+            }}      
+        else:
+            print(f'Player: {display_name} not found.')
+            status_code = 404
+            response = {
+                'status': 'failure',
+                'message': f"Player Information for '{display_name}' not found in player registery.",
+                'player data' : None
+            }
 
         return make_response(jsonify(response), status_code)
 
