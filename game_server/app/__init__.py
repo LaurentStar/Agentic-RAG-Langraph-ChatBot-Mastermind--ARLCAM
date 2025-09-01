@@ -7,7 +7,7 @@ from flask_apscheduler import APScheduler
 # ---------------------- Misc ----------------------#
 from app.extensions import db
 from app.extensions import api
-from app.models.postgres_sql_db_models.player import User
+# from app.models.postgres_sql_db_models.player import User
 
 
 # ---------------------- Name Spaces ----------------------#
@@ -33,6 +33,9 @@ def create_app(test_config=None):
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     app.config['SQLALCHEMY_BINDS'] = {
         'db_players': 'postgresql+psycopg://player_manager:pm_manager1@localhost:5432/player',
+    }
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'connect_args': {'connect_timeout': 10}
     }
     
     #---------------#

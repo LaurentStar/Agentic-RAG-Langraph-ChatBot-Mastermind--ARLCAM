@@ -3,12 +3,13 @@ from flask import jsonify,  make_response, request
 from flask_restx import Api, Resource, fields, Namespace
 
 from sqlalchemy.exc import IntegrityError
-from app.models.postgres_sql_db_models.player import Player
-from app.constants import SocailMediaPlatform, CardType, PlayerStatus
+from app.models.postgres_sql_db_models.player import Player, ToBeInitiatedUpgradeDetails
+from app.constants import SocialMediaPlatform, CardType, PlayerStatus, SpecialAbilityCost, ToBeInitiated
 from app.extensions import db
 from app.extensions import api
 from app.models.rest_api_models.user_command_models import (
-    register_player_payload_rest_api_model, retrieve_player_profile_parser, player_data_response_marshal)
+    register_player_payload_rest_api_model, retrieve_player_profile_parser, 
+    assassinate_payload_rest_api_model, player_data_response_marshal)
 
 # ---------------------- Name Spaces ---------------------- #
 user_commands_ns = Namespace('user-commands', description='Command requested by users and bots')
@@ -32,15 +33,18 @@ class RegisterPlayer(Resource):
             player = Player (            
                 display_name = payload_data.get('display_name'),
                 social_media_platform_display_name = payload_data.get('social_media_platform_display_name'),
-                social_media_platform = SocailMediaPlatform(payload_data.get('social_media_platform')),
+                social_media_platform = SocialMediaPlatform(payload_data.get('social_media_platform')),
                 card_types = [CardType(card) for card in payload_data.get('card_types')],
-                player_statuses = [PlayerStatus(player_status) for player_status in payload_data.get('player_statuses')]
+                player_statuses = [PlayerStatus(player_status) for player_status in payload_data.get('player_statuses')],
+                coins = payload_data.get('coins'),
+                target_display_name = None,
+                to_be_initiated = [ToBeInitiated.NO_EVENT]
             )
             db.session.add(player)
             db.session.commit()
             response = {
                 "status": "success",
-                "message": f'New player  registered.'
+                "message": f'New player {player.display_name} registered.'
             }
             status_code = 200
 
@@ -94,7 +98,85 @@ class RetrievePlayerProfile(Resource):
 
         return make_response(jsonify(response), status_code)
 
+class Assassinate(Resource):
+
+    @user_commands_ns.expect(assassinate_payload_rest_api_model)
+    def post(self):
+        '''assassinate a player and remove 1 of their influencer cards'''
+        payload_data = request.get_json()
+
+        if not isinstance(payload_data, dict):
+            return False
+    
+       
+        assassin_display_name = payload_data.get('assassin_display_name')
+        assassin_priority = payload_data.get('assassin_priority')
+        assassin_priority_upgrade = payload_data.get('assassin_priority_upgrade')
+        target_display_name = payload_data.get('target_display_name')
+        assassinate_coins = None; status_code = None; response = None; special_ability_total_cost = None
+        message = [] 
+        
+
+        try:
+            # ---------------------- Get assassin and target profiles ---------------------- #
+            assassin_profile = db.session.execute(db.select(Player).where(Player.display_name == assassin_display_name)).scalar_one_or_none()
+            assassin_to_be_initiated_upgrade_details = db.session.execute(db.select(ToBeInitiatedUpgradeDetails).where(ToBeInitiatedUpgradeDetails.display_name == assassin_display_name)).scalar_one_or_none()
+            target_profile = db.session.execute(db.select(Player).where(Player.display_name == target_display_name)).scalar_one_or_none()
+            
+            special_ability_total_cost = (SpecialAbilityCost.ASSASSINATE + (SpecialAbilityCost.ASSASSINATE_UPGRADE if assassin_priority_upgrade else 0))
+            
+            # ---------------------- Check if assassin can afford action ---------------------- #
+            if assassin_profile.coins >= special_ability_total_cost and target_profile.display_name:   
+                assassin_profile.target_display_name = target_profile.display_name
+                assassin_profile.to_be_initiated.append(ToBeInitiated.ACT_ASSASSINATION)
+                
+                if assassin_priority_upgrade:
+                    if assassin_to_be_initiated_upgrade_details:
+                        assassin_to_be_initiated_upgrade_details.assassination_priority = CardType(assassin_priority )
+                    else:
+                        assassin_to_be_initiated_upgrade_details = ToBeInitiatedUpgradeDetails(            
+                            display_name = payload_data.get('assassin_display_name'),
+                            assassination_priority = CardType(payload_data.get('assassin_priority')),
+                        )
+
+                # ---------------------- Update Tables ---------------------- #
+                db.session.add(assassin_profile)
+                db.session.add(assassin_to_be_initiated_upgrade_details)
+                db.session.commit()
+
+                # ---------------------- Output Response ---------------------- #
+                status_code = 200
+                status = 'success'         
+                message.append(f"Player '{target_profile.display_name}' is marked for assassination: Priority card is: {assassin_priority or 'None'}")
+
+            else:
+                status = 'denied'
+                status_code = 403
+                if assassin_profile.coins >= special_ability_total_cost:
+                    message.append(f"Inssufficent funds")
+                if target_profile.display_name:
+                    message.append(f"Assassination target does not exist ")
+
+
+            response = {
+                'status': status,
+                'message': message,
+                'player data' : {
+                    'display_name': assassin_profile.display_name,
+                    'social_media_platform_display_name': assassin_profile.social_media_platform_display_name,
+                    'social_media_platform': assassin_profile.social_media_platform,
+                    'card_types': assassin_profile.card_types,
+                    'coins': assassin_profile.coins,
+                    'player_statuses': assassin_profile.player_statuses
+            }}      
+
+        except Exception as e:
+            print('error',e)
+
+        return make_response(jsonify(response), status_code)
+
 # ---------------------- Building Resources ---------------------- #
 user_commands_ns.add_resource(RegisterPlayer, '/register-player')
 user_commands_ns.add_resource(RetrievePlayerProfile, '/retrieve-player-profile')
+user_commands_ns.add_resource(Assassinate, '/assissinate-target')
 
