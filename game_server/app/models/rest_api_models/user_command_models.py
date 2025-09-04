@@ -21,6 +21,31 @@ assassinate_payload_rest_api_model = api.model('AssassinatePayload', {
     'target_display_name': fields.String(required=True, description='The name of player targeted for assassination'),
 })
 
+coup_payload_rest_api_model = api.model('CoupPayload', {
+    'caudillo_display_name': fields.String(required=True, description='The name of the player initiating the coup. Caudillo A Spanish term for a military-political leader, historically used in Spain and Latin America for strongmen who came to power, often by force.'),
+    'deposed_influencer_display_name': fields.String(required=True, description='The name of player targeted for coup. One of thier influencer cards will be deposed'),
+})
+
+# model for most generic actions
+generic_payload_rest_api_model = api.model('GenericPayload', {
+    'player_display_name': fields.String(required=True, description='The name of the player initiating the action.'),
+    'player_upgrade' : fields.Boolean(required=False, description='Flag to mark player action as upgraded'),
+    'target_display_name': fields.String(required=True, description='The name of player targeted for action.'),
+})
+
+# generic model, without target required
+generic_target_not_required_payload_rest_api_model = api.model('GenericTargetNotRequiredPayload', {
+    'player_display_name': fields.String(required=True, description='The name of the player initiating the action.'),
+    'player_upgrade' : fields.Boolean(required=False, description='Flag to mark player action as upgraded'),
+    'target_display_name': fields.String(required=False, description='The name of player targeted for action.'),
+})
+
+
+
+player_query_payload_rest_api_model = api.model('PlayerPayload', {
+    'display_name': fields.String(required=True, description='The name of the player. This is a primary key in the database. It is used for a few apis generically'),
+})
+
 
 #---------------------------------------------#
 # JSON RESPONSE OUTPUT MODELS FOR MARSHALLING #

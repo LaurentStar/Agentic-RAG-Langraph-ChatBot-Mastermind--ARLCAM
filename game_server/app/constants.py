@@ -29,13 +29,27 @@ class PlayerStatus(str,Enum):
 
 class ToBeInitiated(str,Enum):
     ACT_ASSASSINATION = 'act_assassination'
+    ACT_FOREIGN_AID = 'act_foreign_aid'
+    ACT_COUP = 'act_coup'
+    ACT_STEAL = 'act_steal'
+    ACT_BLOCK = 'act_block'
+    ACT_SWAP_INFLUENCE = 'act_swap_influence'
+
     OCCURENCE_ASSASSINATED = 'occurance_assassinated'
+
     NO_EVENT = 'no_event'
 
 
 
 class SpecialAbilityCost(IntEnum):
+    COUP = 7
     ASSASSINATE = 3
     ASSASSINATE_UPGRADE = 2
+    STEAL = 0
+    STEAL_UPGRADE = 1
+    SWAP_INFLUENCE = 0
+    SWAP_INFLUENCE_UPGRADE = 4
+
+    
 
 

@@ -152,3 +152,7 @@ https://discordpy.readthedocs.io/en/stable/discord.html
 # Running Instructions
 - Game Server is factory style. Run app.py
 - Discord. run bot.py
+
+HANDLES UNIQUE EXCEL 
+- FORMULA
+- IMAGES

@@ -31,8 +31,9 @@ class ToBeInitiatedUpgradeDetails(Base):
 
     # ---------------------- To Be initiated details about the upgraded action ---------------------- #
     display_name            : Mapped[str] = mapped_column(ForeignKey("player_table_orm.display_name"), primary_key=True)
-    assassination_priority  : Mapped[CardType] = mapped_column(unique=False)
-
+    assassination_priority  : Mapped[CardType] = mapped_column(unique=False, create_type=True, nullable=True)
+    kleptomania_steal       : Mapped[bool] = mapped_column(unique=False, create_type=True, nullable=True)
+    trigger_identity_crisis : Mapped[bool] = mapped_column(unique=False, create_type=True, nullable=True)
 
     # ---------------------- relationship to the parent table ---------------------- #
     player = relationship("Player", back_populates="to_be_initiated_upgraded_details")

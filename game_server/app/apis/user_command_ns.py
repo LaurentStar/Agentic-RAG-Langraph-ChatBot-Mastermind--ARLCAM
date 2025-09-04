@@ -3,13 +3,18 @@ from flask import jsonify,  make_response, request
 from flask_restx import Api, Resource, fields, Namespace
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.attributes import flag_modified
+
 from app.models.postgres_sql_db_models.player import Player, ToBeInitiatedUpgradeDetails
 from app.constants import SocialMediaPlatform, CardType, PlayerStatus, SpecialAbilityCost, ToBeInitiated
 from app.extensions import db
 from app.extensions import api
 from app.models.rest_api_models.user_command_models import (
     register_player_payload_rest_api_model, retrieve_player_profile_parser, 
-    assassinate_payload_rest_api_model, player_data_response_marshal)
+    assassinate_payload_rest_api_model, coup_payload_rest_api_model,
+    player_query_payload_rest_api_model, generic_payload_rest_api_model,
+    generic_target_not_required_payload_rest_api_model, 
+    player_data_response_marshal)
 
 # ---------------------- Name Spaces ---------------------- #
 user_commands_ns = Namespace('user-commands', description='Command requested by users and bots')
@@ -175,8 +180,308 @@ class Assassinate(Resource):
 
         return make_response(jsonify(response), status_code)
 
+class Coup(Resource):
+    @user_commands_ns.expect(coup_payload_rest_api_model)
+    def post(self):
+        '''perform an unblockable coup against another player'''
+        payload_data = request.get_json()
+
+        if not isinstance(payload_data, dict):
+            return False
+        
+        caudillo_display_name = payload_data.get('caudillo_display_name')
+        deposed_influencer_display_name = payload_data.get('deposed_influencer_display_name')
+        caudillo_coins = None; status_code = None; response = None
+        message = [] 
+
+        try:
+            # ---------------------- Get caudillo and deposed_influence profiles ---------------------- #
+            caudillo_profile = db.session.execute(db.select(Player).where(Player.display_name == caudillo_display_name)).scalar_one_or_none()
+            deposed_influencer_profile = db.session.execute(db.select(Player).where(Player.display_name == deposed_influencer_display_name)).scalar_one_or_none()
+        
+            
+            # ---------------------- Check if assassin can afford action and the profiles exist---------------------- #
+            if caudillo_profile and deposed_influencer_profile and caudillo_profile.coins >= SpecialAbilityCost.COUP:   
+                caudillo_profile.target_display_name = deposed_influencer_profile.display_name
+                caudillo_profile.to_be_initiated.append(ToBeInitiated.ACT_ASSASSINATION)
+
+                # ---------------------- Update Tables ---------------------- #
+                db.session.add(caudillo_profile)
+                db.session.commit()
+
+                # ---------------------- Output Response ---------------------- #
+                status_code = 200
+                status = 'success'         
+                message.append(f"Player '{deposed_influencer_profile.display_name}' is marked for coup.")
+            else:
+                status = 'denied'
+                status_code = 403
+                if caudillo_profile.coins >= SpecialAbilityCost.COUP:
+                    message.append(f"Inssufficent funds")
+                if deposed_influencer_profile.display_name:
+                    message.append(f"Coup target does not exist ")    
+        except Exception as e:
+            print('error',e)
+
+        return make_response(jsonify(response), status_code)
+
+class ForeignAid(Resource):
+    @user_commands_ns.expect(player_query_payload_rest_api_model)
+    def post(self):
+        '''Request foreigh aid and takes two coins from the bank'''
+        payload_data = request.get_json()
+
+        if not isinstance(payload_data, dict):
+            return False
+        
+        recipient_display_name = payload_data.get('display_name')
+        message = []; response = None
+
+        try:
+            # ---------------------- Get recipient profiles ---------------------- #
+            recipient_profile = db.session.execute(db.select(Player).where(Player.display_name == recipient_display_name )).scalar_one_or_none()
+             
+            # ---------------------- Check if recipient profile exist---------------------- #
+            if recipient_profile:   
+                recipient_profile.to_be_initiated.append(ToBeInitiated.ACT_ASSASSINATION)
+
+                # ---------------------- Update Tables ---------------------- #
+                db.session.add(recipient_profile)
+                flag_modified(recipient_profile, "to_be_initiated")
+                db.session.commit()
+
+                # ---------------------- Output Response ---------------------- #
+                status_code = 200
+                status = 'success'         
+                message.append(f"Player '{recipient_profile.display_name}' is marked for coup.")
+   
+        except Exception as e:
+            status_code = 500
+            print('error',e)
+
+        return make_response(jsonify(response), status_code)
+
+class Steal(Resource):
+    @user_commands_ns.expect(generic_payload_rest_api_model)
+    def post(self):
+        '''Steal from another player'''
+        payload_data = request.get_json()
+
+        if not isinstance(payload_data, dict):
+            return False
+        
+        player_display_name = payload_data.get('player_display_name')
+        target_display_name = payload_data.get('target_display_name')
+        player_upgrade = payload_data.get('player_upgrade')
+        message = []; response = None
+
+
+        try:
+            # ---------------------- Get player and target profiles ---------------------- #
+            player_profile = db.session.execute(db.select(Player).where(Player.display_name == player_display_name)).scalar_one_or_none()
+            target_profile = db.session.execute(db.select(Player).where(Player.display_name == target_display_name )).scalar_one_or_none()
+            player_to_be_initiated_upgrade_details = db.session.execute(db.select(ToBeInitiatedUpgradeDetails).where(ToBeInitiatedUpgradeDetails.display_name == player_display_name)).scalar_one_or_none()
+
+            special_ability_total_cost = (SpecialAbilityCost.STEAL + (SpecialAbilityCost.STEAL_UPGRADE if player_upgrade else 0))
+
+            # ---------------------- Check if recipient profile exist---------------------- #
+            if player_profile and target_profile:   
+                target_profile.to_be_initiated.append(ToBeInitiated.ACT_STEAL)
+
+                # ---------------------- Check if player can afford action ---------------------- #
+                if player_profile.coins >= special_ability_total_cost:   
+                    player_profile.target_display_name = target_profile.display_name
+                    player_profile.to_be_initiated.append(ToBeInitiated.ACT_STEAL)
+                    
+                    if player_upgrade:
+                        if player_to_be_initiated_upgrade_details:
+                            player_to_be_initiated_upgrade_details.kleptomania_steal = True # kleptomania means to have a mental disorder, being unable to resist not stealing and theivefy.
+                        else:
+                            player_to_be_initiated_upgrade_details = ToBeInitiatedUpgradeDetails(            
+                                display_name = payload_data.get('player_display_name'),
+                                kleptomania_steal = True
+                            )
+                            
+                    # ---------------------- Update Tables ---------------------- #
+                    db.session.add(player_profile)
+                    db.session.add(player_to_be_initiated_upgrade_details)
+                    flag_modified(player_profile, "to_be_initiated")
+                    db.session.commit()
+
+                    # ---------------------- Output Response ---------------------- #
+                    status_code = 200
+                    status = 'success'         
+                    message.append(f"Player '{target_profile.display_name}' is marked to be stolen from.")
+            else:
+                status = 'denied'
+                status_code = 403
+                if player_profile.coins >= special_ability_total_cost:
+                    message.append(f"Inssufficent funds")
+                if target_profile.display_name:
+                    message.append(f"Robbery target does not exist.")
+
+        except Exception as e:
+            status = 'error'
+            status_code = 500
+            message.append(f"Having an internal server error, please try again later.")
+            print('error',e)
+
+
+
+        response = {
+            'status': status,
+            'message': message,
+            'player data' : {
+                'display_name': player_profile.display_name,
+                'social_media_platform_display_name': player_profile.social_media_platform_display_name,
+                'social_media_platform': player_profile.social_media_platform,
+                'card_types': player_profile.card_types,
+                'coins': player_profile.coins,
+                'player_statuses': player_profile.player_statuses
+        }}    
+        return make_response(jsonify(response), status_code)
+
+class Block(Resource):
+    @user_commands_ns.expect(generic_payload_rest_api_model)
+    def post(self):
+        '''Block another player action'''
+        payload_data = request.get_json()
+
+        if not isinstance(payload_data, dict):
+            return False
+        
+        player_display_name = payload_data.get('player_display_name')
+        target_display_name = payload_data.get('target_display_name')
+        message = []; response = None
+
+
+        try:
+            # ---------------------- Get player and target profiles ---------------------- #
+            player_profile = db.session.execute(db.select(Player).where(Player.display_name == player_display_name)).scalar_one_or_none()
+            target_profile = db.session.execute(db.select(Player).where(Player.display_name == target_display_name )).scalar_one_or_none()
+
+            # ---------------------- Check if recipient profile exist---------------------- #
+            if player_profile and target_profile:   
+                player_profile.target_display_name = target_profile.display_name
+                player_profile.to_be_initiated.append(ToBeInitiated.ACT_BLOCK)
+                
+                # ---------------------- Update Tables ---------------------- #
+                db.session.add(player_profile)
+                flag_modified(player_profile, "to_be_initiated")
+                db.session.commit()
+
+                # ---------------------- Output Response ---------------------- #
+                status_code = 200
+                status = 'success'         
+                message.append(f"Player '{target_profile.display_name}' is marked to be blocked.")
+            else:
+                status = 'denied'
+                status_code = 403
+                if target_profile.display_name:
+                    message.append(f"Robbery target does not exist.")
+
+        except Exception as e:
+            status = 'error'
+            status_code = 500
+            message.append(f"Having an internal server error, please try again later.")
+            print('error',e)
+
+
+
+        response = {
+            'status': status,
+            'message': message,
+            'player data' : {
+                'display_name': player_profile.display_name,
+                'social_media_platform_display_name': player_profile.social_media_platform_display_name,
+                'social_media_platform': player_profile.social_media_platform,
+                'card_types': player_profile.card_types,
+                'coins': player_profile.coins,
+                'player_statuses': player_profile.player_statuses
+        }}    
+        return make_response(jsonify(response), status_code)
+
+class SwapInfluence(Resource):
+    @user_commands_ns.expect(generic_target_not_required_payload_rest_api_model)
+    def post(self):
+        '''Player swaps their cards or potentially another player along with their'''
+        payload_data = request.get_json()
+
+        if not isinstance(payload_data, dict):
+            return False
+        
+        player_display_name = payload_data.get('player_display_name')
+        target_display_name = payload_data.get('target_display_name')
+        player_upgrade = payload_data.get('player_upgrade')
+        message = []; response = None; status = None; status_code = None
+
+
+        try:
+            # ---------------------- Get player and target profiles ---------------------- #
+            player_profile = db.session.execute(db.select(Player).where(Player.display_name == player_display_name)).scalar_one_or_none()
+            target_profile = db.session.execute(db.select(Player).where(Player.display_name == target_display_name )).scalar_one_or_none()
+            player_to_be_initiated_upgrade_details = db.session.execute(db.select(ToBeInitiatedUpgradeDetails).where(ToBeInitiatedUpgradeDetails.display_name == player_display_name)).scalar_one_or_none()
+
+            special_ability_total_cost = (SpecialAbilityCost.SWAP_INFLUENCE + (SpecialAbilityCost.SWAP_INFLUENCE_UPGRADE if player_upgrade else 0))
+
+            # ---------------------- Check ift player profile exist and can afford the action---------------------- #
+            if player_profile and player_profile.coins >= special_ability_total_cost:
+
+                player_profile.target_display_name = target_profile.display_name
+                player_profile.to_be_initiated.append(ToBeInitiated.ACT_SWAP_INFLUENCE)
+                
+                if player_upgrade:
+                    if player_to_be_initiated_upgrade_details:
+                        player_to_be_initiated_upgrade_details.trigger_identity_crisis = True # This swaps the target cards along with the player causing a mild identity crisis
+                    else:
+                        player_to_be_initiated_upgrade_details = ToBeInitiatedUpgradeDetails(            
+                            display_name = payload_data.get('player_display_name'),
+                            trigger_identity_crisis = True
+                        )
+                        
+                # ---------------------- Update Tables ---------------------- #
+                db.session.add(player_profile)
+                db.session.add(player_to_be_initiated_upgrade_details)
+                flag_modified(player_profile, "to_be_initiated")
+                db.session.commit()
+
+                # ---------------------- Output Response ---------------------- #
+                status_code = 200
+                status = 'success'         
+                message.append(f"Player '{player_profile.display_name}' is marked to have their deck swapped. {target_profile.display_name} will also have their deck swapped.")
+            else:
+                status = 'denied'
+                status_code = 403
+                if player_profile.coins < special_ability_total_cost:
+                    message.append(f"Inssufficent funds")
+                if not target_profile.display_name and player_upgrade:
+                    message.append(f" Identity crisis target does not exist.")
+        except Exception as e:
+            status = 'error'
+            status_code = 500
+            message.append(f"Having an internal server error, please try again later.")
+            print('error',e)
+
+        response = {
+            'status': status,
+            'message': message,
+            'player data' : {
+                'display_name': player_profile.display_name,
+                'social_media_platform_display_name': player_profile.social_media_platform_display_name,
+                'social_media_platform': player_profile.social_media_platform,
+                'card_types': player_profile.card_types,
+                'coins': player_profile.coins,
+                'player_statuses': player_profile.player_statuses
+        }}    
+        return make_response(jsonify(response), status_code)
+
+ 
 # ---------------------- Building Resources ---------------------- #
 user_commands_ns.add_resource(RegisterPlayer, '/register-player')
 user_commands_ns.add_resource(RetrievePlayerProfile, '/retrieve-player-profile')
 user_commands_ns.add_resource(Assassinate, '/assissinate-target')
-
+user_commands_ns.add_resource(Coup, '/perform-coup')
+user_commands_ns.add_resource(ForeignAid, '/request-foreign-aid')
+user_commands_ns.add_resource(Steal, '/steal-from-target')
+user_commands_ns.add_resource(Block, '/block-target')
+user_commands_ns.add_resource(SwapInfluence, '/swap-influence')
