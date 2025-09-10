@@ -203,3 +203,9 @@ Here is the list of all the updates that I made on this template.
 
 - Added blacklist command
 - Removed commands cool down
+
+
+Change VENV
+ctrl + shift + p 
+Search: python.interpreterPath
+Select venv

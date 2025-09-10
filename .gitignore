@@ -211,3 +211,5 @@ __marimo__/
 # venv
 arlcam_project
 config.ini
+venv_arlcam_project_game_server
+venv_arlcam_project_lang_graph_server

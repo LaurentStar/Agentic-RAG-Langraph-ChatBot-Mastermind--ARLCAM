@@ -400,7 +400,7 @@ class Block(Resource):
                 'player_statuses': player_profile.player_statuses
         }}    
         return make_response(jsonify(response), status_code)
-
+ 
 class SwapInfluence(Resource):
     @user_commands_ns.expect(generic_target_not_required_payload_rest_api_model)
     def post(self):
