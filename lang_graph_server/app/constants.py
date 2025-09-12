@@ -12,14 +12,16 @@ class BotActions(str, Enum):
     DECIDE_TO_RESPONSE = 'decide_to_response'
 
 class Tone(str,Enum):
-    ESSIMISTIC = 'essimistic'
-    SAD = 'sad'
     ANGRY = 'angry'
-    BITTER = 'bitter'
     ANXIOUS = 'anxious'
+    BITTER = 'bitter'
     CRITICAL = 'critical'
-    TENSE = 'tense'
+    ESSIMISTIC = 'essimistic'
+    EXCITED = 'excited'
     FOREBODING = 'foreboding'
+    HAPPY = 'happy'
+    SAD = 'sad'
+    TENSE = 'tense'
     UNSURE = 'unsure'
     NOT_WITHIN_SCOPE = 'not_within_scope'
 

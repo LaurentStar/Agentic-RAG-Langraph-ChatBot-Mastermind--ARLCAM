@@ -21,4 +21,4 @@ class Tone_OS(BaseModel):
 
     binary_score: Tone = Field(
         description="The tone of the message'"
-    )
+    ) 

@@ -1,34 +1,29 @@
 ## 🎯 Objective:
-classify the tone of the user message. 
+examine the user message and grade it between -1 (lie) and 1 (truth) or 0 (Not a lie or a truth)
 
 ## 📝 Context:
-Choose 1 or more of the following options.  
-
-``[{enum_tone}]``
-
+{context}
 
 ##  🚫 Rules
 - don't add a summary
 - don't be verbose
-- only output the tone's in a list.
+- only output the number and nothing else
 
 ## 💬 User Message:
 {message}
 
 ## 🧪 Samples:
 Q: `WOOO YEAH! I am so glad I passed my test!`
-A: [HAPPY, EXCITED]
+A: 1
 
 Q: `John is incompetence... I should have been promoted`
-A: [BITTER]
+A: -0.3
 
 Q: `RAGGLE FRAGGLE TAGGLE BAGGLE!`
-A: [NOT_WITHIN_SCOPE]
+A: 0
 
 Q: `She was an honorable woman. How dare you say what you said and stand where she stood.`
-A: [CRITICAL]
+A: 0.5
 
 ## 🏛️ Output Format:
-[tone]
-
-
+1 (A number between -1 and 1)

@@ -1,6 +1,7 @@
 
 
 from pathlib import Path
+import os
 from app.extensions import api, markdown_prompts, lang_graph_app
 from flask import Flask, Blueprint, render_template, render_template_string, request, redirect, url_for
 
@@ -15,9 +16,13 @@ def create_app(test_config=None):
     # LOAD PROMPTS # !!! Must be loaded first
     #--------------#
     script_dir = Path(__file__).parent
-    file_path = script_dir / "prompts" / "tone_extractor_prompt.md"
-    with open(file_path, "r", encoding="utf-8") as f:
-        markdown_prompts[file_path.name] = f.read()
+    folder_path = script_dir / "prompts"
+    markdown_files = os.listdir(folder_path)
+
+    for file in markdown_files:
+        file_path = folder_path / file
+        with open(file_path , "r", encoding="utf-8") as f:
+            markdown_prompts[file_path.name] = f.read()
 
 
     #-------------------#
@@ -47,8 +52,5 @@ def create_app(test_config=None):
     lang_graph_app.init_app()
 
 
-    #-------------------------------------#
-    # Creating the lang graph application #
-    #-------------------------------------#
     return app
 

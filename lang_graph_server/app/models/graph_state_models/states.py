@@ -16,12 +16,16 @@ class AgentJBallGraphState(TypedDict):
     """
     message: str
     message_tone: Tone
-    working_memory: list
-    context: str
+    exaggeration_score: float
+    vagueness_score: float
+
+    
     relevant_score: float
     truth_score: float
     lie_score: float
     llm_generation: str
+    working_memory: list
+    context: str
     
 
 

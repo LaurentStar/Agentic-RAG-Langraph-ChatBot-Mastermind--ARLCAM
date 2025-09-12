@@ -1,4 +1,4 @@
-from dotenv import load_dotenv
+from dotenv import load_dotenv; load_dotenv()
 from langgraph.graph import END, StateGraph
 
 # from chains.answer_grader import answer_grader
@@ -12,10 +12,10 @@ from langgraph.graph import END, StateGraph
 # from nodes import generate, grade_documents, retrieve, web_search
 
 
+# ---------------------- Graph State Models ---------------------- #
+from app.models.graph_state_models.states import AgentJBallGraphState
 
-from app.graphs.states import AgentJBallGraphState
 
-load_dotenv()
 
 
 # def decide_to_generate(state):
@@ -110,14 +110,14 @@ class LangGraphApp():
     
     def init_app(self):
         # ---------------------- Delayed importing of Nodes ---------------------- #
-        from app.graphs.nodes.bot_actions.bot_action_nodes import extract_tone_node        
-        self.__class__.jball_agent_app = LangGraphApp.create_jball_workflow(extract_tone_node)
+        from app.nodes.bot_actions.bot_action_nodes import extract_message_meta_details_node      
+        self.__class__.jball_agent_app = LangGraphApp.create_jball_workflow(extract_message_meta_details_node)
         
     @staticmethod
     def create_jball_workflow(extract_tone_node):
         workflow = StateGraph(AgentJBallGraphState)
-        workflow.add_node('get_tone', extract_tone_node)
-        workflow.set_entry_point("get_tone")
+        workflow.add_node('get_message_meta_details', extract_tone_node)
+        workflow.set_entry_point("get_message_meta_details")
 
         return workflow.compile()
     
