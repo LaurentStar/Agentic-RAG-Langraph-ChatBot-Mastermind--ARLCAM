@@ -7,14 +7,11 @@ from langgraph.graph import END, StateGraph
 # from lang_graph_server.app.constants import GENERATE, GRADE_DOCUMENTS, RETRIEVE, WEBSEARCH
 
 
-
-# ---------------------- Nodes ---------------------- #
-# from nodes import generate, grade_documents, retrieve, web_search
-
-
 # ---------------------- Graph State Models ---------------------- #
 from app.models.graph_state_models.states import AgentJBallGraphState
 
+
+from app.nodes.initialization import initialization_nodes
 
 
 
@@ -109,16 +106,35 @@ from app.models.graph_state_models.states import AgentJBallGraphState
 class LangGraphApp():
     
     def init_app(self):
-        # ---------------------- Delayed importing of Nodes ---------------------- #
-        from app.nodes.bot_actions.bot_action_nodes import extract_message_meta_details_node      
-        self.__class__.jball_agent_app = LangGraphApp.create_jball_workflow(extract_message_meta_details_node)
+        # ---------------------- Import all nodes ---------------------- #
+        from app.nodes.bot_actions.bot_action_nodes import extract_message_meta_details_node, decide_how_to_response_node
+
+        # ---------------------- Import all routers ---------------------- #
+        from app.nodes.bot_actions.bot_action_nodes import decide_to_respond_route
+
+        self.__class__.jball_agent_app = LangGraphApp.create_jball_workflow(
+            extract_message_meta_details_node=extract_message_meta_details_node, 
+            decide_how_to_response_node=decide_how_to_response_node,
+            decide_to_respond_route=decide_to_respond_route)
         
     @staticmethod
-    def create_jball_workflow(extract_tone_node):
+    def create_jball_workflow(**nodes_routes):
         workflow = StateGraph(AgentJBallGraphState)
-        workflow.add_node('get_message_meta_details', extract_tone_node)
-        workflow.set_entry_point("get_message_meta_details")
+        workflow.add_node('initialize_jball_state_graph_node', initialization_nodes.initialize_jball_state_graph_node)
+        workflow.add_node('extract_message_meta_details_node', nodes_routes['extract_message_meta_details_node'])
+        workflow.add_node('decide_how_to_response_node', nodes_routes['decide_how_to_response_node'])
+        
+        workflow.add_conditional_edges('extract_message_meta_details_node', nodes_routes['decide_to_respond_route'],
+            {
+                True: 'decide_how_to_response_node',
+                False: END,
+            },
+        )
 
+        workflow.add_edge('initialize_jball_state_graph_node', 'extract_message_meta_details_node')
+        workflow.add_edge('decide_how_to_response_node', END)
+        workflow.set_entry_point("initialize_jball_state_graph_node")
+        
         return workflow.compile()
     
     jball_agent_app = None

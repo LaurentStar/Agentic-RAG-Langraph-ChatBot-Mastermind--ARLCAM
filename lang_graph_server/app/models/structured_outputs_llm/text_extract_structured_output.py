@@ -12,5 +12,11 @@ class Tone_SO(BaseModel):
     
 class UnitBall_SO(BaseModel):
     unit_ball_score : float = Field(
-        description="A score that goes from -1 to 1. It is the closest universal representation of this range I could find within 10 seconds of research."
+        description="A score that goes from -1 to 1. It is the closest universal representation of this range I could find within 10 seconds of research.",
+        ge=-1.0, le=1.0
+    )
+
+class IO_SO(BaseModel):
+    io : bool = Field(
+        description="A value of true or false. This represent a decision from the llm "
     )

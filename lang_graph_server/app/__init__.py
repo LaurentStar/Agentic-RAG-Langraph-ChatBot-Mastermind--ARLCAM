@@ -8,7 +8,8 @@ from flask import Flask, Blueprint, render_template, render_template_string, req
 
 
 # ---------------------- Name Spaces ----------------------#
-from app.apis.llm_notify_ns import user_commands_ns
+from app.apis.llm_notify_ns import llm_notifications_ns
+from app.apis.llm_debugging_testing_ns import debug_test_ns 
 
 def create_app(test_config=None):
 
@@ -41,7 +42,8 @@ def create_app(test_config=None):
     
     
     # ---------------------- Building Namespaces ---------------------- #
-    api.add_namespace(user_commands_ns)
+    api.add_namespace(llm_notifications_ns)
+    api.add_namespace(debug_test_ns)
      
 
 

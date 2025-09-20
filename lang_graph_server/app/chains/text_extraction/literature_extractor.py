@@ -53,9 +53,20 @@ class TextExtractionChains():
         vagueness_score_extraction_chain :  RunnableSequence  =  prompt |  structured_output_llm_tone 
         return vagueness_score_extraction_chain
 
+
+    @staticmethod
+    def extract_relevant_score():
+        prompt = ChatPromptTemplate.from_messages([
+                    ("system", markdown_prompts['relevant_score_extractor_prompt.md'])
+                ])
+        llm =  ChatOpenAI(model="gpt-4o", temperature=0, verbose=True)
+        structured_output_llm_tone = llm.with_structured_output(UnitBall_SO)
+        relevant_score_extraction_chain :  RunnableSequence  =  prompt |  structured_output_llm_tone 
+        return relevant_score_extraction_chain
     # ---------------------- class variables as chains ---------------------- #
     tone_extraction_chain = extract_tone()
     exaggeration_score_extraction_chain = extract_exaggeration_score()
     vagueness_score_extraction_chain = extract_vagueness_score()
+    relevant_score_extraction_chain = extract_relevant_score()
 
 

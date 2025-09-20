@@ -25,4 +25,12 @@ class Tone(str,Enum):
     UNSURE = 'unsure'
     NOT_WITHIN_SCOPE = 'not_within_scope'
 
+class SocialMediaPlatform(str,Enum):
+    TWITTER = 'twitter'
+    DISCORD = 'discord'  
+    SLACK = 'slack'
+    FACEBOOK = 'facebook'
+    BLUESKY = 'bluesky'
+    EMAIL = 'email'
+    DEFUALT = 'defualt'
 
