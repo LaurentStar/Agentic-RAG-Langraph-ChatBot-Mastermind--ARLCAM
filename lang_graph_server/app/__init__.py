@@ -1,36 +1,51 @@
-
-
+# ---------------------- Standard Library ----------------------#
 from pathlib import Path
 import os
-from app.extensions import api, markdown_prompts, lang_graph_app
-from flask import Flask, Blueprint, render_template, render_template_string, request, redirect, url_for
 
+# ---------------------- Custom ----------------------#
+from app.utils.loader import LoadPrompts
+from app.constants import PromptFileExtension, AllowedUploadFileTypes
 
+# ---------------------- Custom ----------------------#
+from app.extensions import api, lang_graph_app
+from app.extensions import LoadedPromptTemplates, LoadedLLMs
 
-# ---------------------- Name Spaces ----------------------#
+# ---------------------- Flask Rest APIs Name Spaces ----------------------#
 from app.apis.llm_notify_ns import llm_notifications_ns
 from app.apis.llm_debugging_testing_ns import debug_test_ns 
 
-def create_app(test_config=None):
+# ---------------------- External Modeules ----------------------#
+from flask import Flask
+from flask_cors import CORS
+from langchain_openai import ChatOpenAI
 
+
+def create_app(test_config=None):
     #--------------#
     # LOAD PROMPTS # !!! Must be loaded first
     #--------------#
     script_dir = Path(__file__).parent
     folder_path = script_dir / "prompts"
-    markdown_files = os.listdir(folder_path)
+    LoadedPromptTemplates.markdown_prompt_templates = LoadPrompts.load_prompt_templates(folder_path, PromptFileExtension.MARKDOWN)
 
-    for file in markdown_files:
-        file_path = folder_path / file
-        with open(file_path , "r", encoding="utf-8") as f:
-            markdown_prompts[file_path.name] = f.read()
+    
+    #----------------------#
+    # LOAD LLMS EXPLICITLY #
+    #----------------------#
+    # ---------------------- gpt 4.0  ---------------------- #
+    api_key = os.environ.get("OPENAI_API_KEY")
+    endpoint = os.environ.get("DEFAULT", None)
+    model_name = os.environ.get("OPENAI_API_MODEL")
+    LoadedLLMs.gpt_llm = ChatOpenAI(base_url=endpoint, api_key=api_key, model_name=model_name, temperature=0.1)
+
 
 
     #-------------------#
     #  CREATE FLASK APP #
     #-------------------#
     app = Flask(__name__, instance_relative_config=True)
-
+    app.config['UPLOAD_EXTENSIONS'] = [member.value for member in AllowedUploadFileTypes]
+    # CORS(app, orgins=["url1, url2, url3"])
 
     #-----------#
     # REST APIs #
@@ -45,8 +60,6 @@ def create_app(test_config=None):
     api.add_namespace(llm_notifications_ns)
     api.add_namespace(debug_test_ns)
      
-
-
 
     #----------------#
     # LANG GRAPH APP #

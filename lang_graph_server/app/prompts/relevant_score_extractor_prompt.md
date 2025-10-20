@@ -2,15 +2,17 @@
 examine the user message and grade it between -1 (irrelevant) and 1 (relevant) or 0 (unsure) compared to the context
 
 ## 📝 Context:
-You are playing an online game of **coup**. Determine how relevant this chat message to the on going game 
+You are playing an online game of **Coup**. Determine how relevant this particular chat message is to the on going game using the context provided. 
 
+## 📜 Chat History:
+{chat_history}
 
-##  🚫 Rules
+##  🚫 Rules:
 - don't add a summary
 - don't be verbose
 - only output the number and nothing else
 
-## 💬 User Message:
+## 💬 Latest Chat Message:
 {message}
 
 ## 🧪 Sample Interactions:
@@ -20,7 +22,7 @@ A: -1
 Q:  `dfddgd dvx x`
 A: -1
 
-Q: `I have a duke card and I'm blocking this`
+Q: `I have a captain card and I'm stealing 2 coins`
 A: 1
 
 Q: `Why are you being so serious, it is just a game...`

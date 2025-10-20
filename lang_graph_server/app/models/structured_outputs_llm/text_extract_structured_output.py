@@ -17,6 +17,4 @@ class UnitBall_SO(BaseModel):
     )
 
 class IO_SO(BaseModel):
-    io : bool = Field(
-        description="A value of true or false. This represent a decision from the llm "
-    )
+    io : bool = Field(description="A value of true or false. This represent a decision from the llm ")
