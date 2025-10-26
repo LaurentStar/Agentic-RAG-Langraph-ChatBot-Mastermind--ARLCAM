@@ -216,4 +216,4 @@ venv_arlcam_project_game_server
 venv_arlcam_project_lang_graph_server
 
 test
-.chroma
+.chroma/

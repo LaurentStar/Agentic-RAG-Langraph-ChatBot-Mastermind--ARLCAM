@@ -1,5 +1,8 @@
-## 🎯 Objective:
-examine the user message and grade it between -1 (understate) and 1 (exaggerate) or 0 (neither understate nor exaggerate)
+## 🎯 4 ObjectiveS:
+1. examine the user message and grade it between -1 (understate) and 1 (exaggerate) or 0 (neither understate nor exaggerate)
+2. examine the user message and grade it between -1 (vague) and 1 (clear) or 0 (neither vagu nor clear)
+3. 
+4.  
 
 ##  🚫 Rules
 - don't add a summary

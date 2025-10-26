@@ -37,10 +37,11 @@ class NotifyLLMs(Resource):
         try:
             status = 'success'
             status_code = 200
-            message = "all agents have been notified"
 
             # ---------------------- Invoke all llms ---------------------- #
-            llm_jbal_response = lang_graph_app.jball_agent_wf.run(initial_state=payload_data)
+            llm_jball_response = lang_graph_app.jball_agent_wf.run(initial_state=payload_data)
+            message = f"all agents have been notified: {llm_jball_response}"
+
             # llm2
             # llm3
 

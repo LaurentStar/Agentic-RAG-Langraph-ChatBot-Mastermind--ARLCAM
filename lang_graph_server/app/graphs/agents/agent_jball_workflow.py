@@ -25,6 +25,7 @@ class AgentJBallWorkflow:
         #_______ Define and compile the graph _______#
         self.workflow = StateGraph(AgentGraphStateBase)
         self.workflow.add_node(Node.INITIALIZATION, initialization_nodes.initialize_jball_state_graph_node)
+        self.workflow.add_node("extract_message_meta_details_node", extract_message_meta_details_node)
         # self.workflow.add_node('extract_message_meta_details_node', nodes_routes['extract_message_meta_details_node'])
         # self.workflow.add_node('decide_how_to_response_node', nodes_routes['decide_how_to_response_node'])
         
@@ -37,21 +38,15 @@ class AgentJBallWorkflow:
 
         # self.workflow.add_edge('initialize_jball_state_graph_node', 'extract_message_meta_details_node')
         # self.workflow.add_edge('decide_how_to_response_node', END)
-        self.workflow.add_edge(Node.INITIALIZATION, END)
+        self.workflow.add_edge(Node.INITIALIZATION, "extract_message_meta_details_node")
+        self.workflow.add_edge("extract_message_meta_details_node", END)
         self.workflow.set_entry_point(Node.INITIALIZATION)
         
         self.app = self.workflow.compile()
     
-    def run(self, initial_state:dict, thread_id:str) -> dict:
+    def run(self, initial_state:dict, thread_id:str='default') -> dict:
         return self.app.invoke(initial_state, {"configurable" : {"thread_id": thread_id}})
     
-    def run(self, initial_state:dict) -> dict:
-        return self.app.invoke(initial_state)
     
-    def arun(self, initial_state:dict, thread_id:str) -> dict:
-        # return self.app.ainvoke(initial_state, {"configurable" : {"thread_id": thread_id}})
-        return self.app.ainvoke(initial_state)
-
-
-
-jball_agent_wf = AgentJBallWorkflow()
+    def arun(self, initial_state:dict, thread_id:str=None) -> dict:
+        return self.app.ainvoke(initial_state, {"configurable" : {"thread_id": thread_id}})

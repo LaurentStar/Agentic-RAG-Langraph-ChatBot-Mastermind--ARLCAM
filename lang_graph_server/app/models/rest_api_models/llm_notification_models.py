@@ -7,7 +7,7 @@ from werkzeug.datastructures import FileStorage
 # JSON PAYLOAD INPUT MODELS #
 #---------------------------#
 notify_llm_payload_rest_api_model = api.model('NotifyLLMPayload', {
-    'chat_message': fields.String(required=True, description='message from public chat or email'),
+    'message': fields.String(required=True, description='message from public chat or email'),
     'social_media_platform': fields.String(required=True, enum=[social.name for social in SocialMediaPlatform], description='The social media platform'),
 })
 

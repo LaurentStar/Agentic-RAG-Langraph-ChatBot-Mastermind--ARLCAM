@@ -1,5 +1,5 @@
 from typing import List, TypedDict
-from app.constants import Tone, SocialMediaPlatform
+from app.constants import Tone, SocialMediaPlatform, UnitBall_SO
 
 class AgentGraphStateBase(TypedDict):
     """
@@ -25,15 +25,18 @@ class AgentGraphStateBase(TypedDict):
         relevant_score_range: If the determined the relevant of a message is between these values, you can respond otherwise stay silent. 
     """
     message                         : str
+    message_social_media_platform   : SocialMediaPlatform
+
+
     message_tone                    : Tone
     exaggeration_score              : float
     vagueness_score                 : float
     relevant_score                  : float
-    message_social_media_platform   : SocialMediaPlatform
+    
     relevant_score_range            : tuple[float, float]
-    play_style                      : str 
-    personality                     : str
-    agent_name                      : str
+    play_style                      : UnitBall_SO 
+    personality                     : UnitBall_SO
+    agent_name                      : UnitBall_SO
     
     truth_score                     : float
     lie_score                       : float
