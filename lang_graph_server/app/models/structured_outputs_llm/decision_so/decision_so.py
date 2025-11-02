@@ -5,6 +5,5 @@
 from pydantic import BaseModel, Field
 
 class LLMDecideToReply_SO(BaseModel):
-    llm_response : str = Field(description='LLM Response')
-    llm_thoughts : str = Field(description='LLM thoughts')
-    io : bool = Field(description="A value of true or false. This represent a decision from the llm to speak or stay silent")
+    thoughts        : str = Field(description='LLM thoughts for future reference')
+    will_respond    : bool = Field(description="A value of true or false. This represent a decision from the llm to speak or stay silent")

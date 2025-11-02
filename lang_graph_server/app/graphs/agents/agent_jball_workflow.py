@@ -13,7 +13,7 @@ from app.models.graph_state_models.agent_graph_states import AgentGraphStateBase
 from app.nodes.bot_actions.bot_action_nodes import extract_message_meta_details_node, decide_how_to_response_node
 
 # ---------------------- Import all routers ---------------------- #
-from app.nodes.bot_actions.bot_action_nodes import decide_to_respond_route
+from app.nodes.bot_actions.bot_action_nodes import decide_to_respond_router
 
 from app.nodes.initialization import initialization_nodes
 
@@ -26,20 +26,21 @@ class AgentJBallWorkflow:
         self.workflow = StateGraph(AgentGraphStateBase)
         self.workflow.add_node(Node.INITIALIZATION, initialization_nodes.initialize_jball_state_graph_node)
         self.workflow.add_node("extract_message_meta_details_node", extract_message_meta_details_node)
-        # self.workflow.add_node('extract_message_meta_details_node', nodes_routes['extract_message_meta_details_node'])
-        # self.workflow.add_node('decide_how_to_response_node', nodes_routes['decide_how_to_response_node'])
+        self.workflow.add_node('decide_how_to_response_node', decide_how_to_response_node)
         
-        # self.workflow.add_conditional_edges('extract_message_meta_details_node', nodes_routes['decide_to_respond_route'],
-        #     {
-        #         True: 'decide_how_to_response_node',
-        #         False: END,
-        #     },
-        # )
+        self.workflow.add_conditional_edges('extract_message_meta_details_node', decide_to_respond_router,
+            {
+                True: 'decide_how_to_response_node',
+                False: END,
+            },
+        )
 
         # self.workflow.add_edge('initialize_jball_state_graph_node', 'extract_message_meta_details_node')
         # self.workflow.add_edge('decide_how_to_response_node', END)
         self.workflow.add_edge(Node.INITIALIZATION, "extract_message_meta_details_node")
-        self.workflow.add_edge("extract_message_meta_details_node", END)
+        self.workflow.add_edge("extract_message_meta_details_node", "decide_how_to_response_node")
+        self.workflow.add_edge("decide_how_to_response_node", END)
+
         self.workflow.set_entry_point(Node.INITIALIZATION)
         
         self.app = self.workflow.compile()
@@ -48,5 +49,5 @@ class AgentJBallWorkflow:
         return self.app.invoke(initial_state, {"configurable" : {"thread_id": thread_id}})
     
     
-    def arun(self, initial_state:dict, thread_id:str=None) -> dict:
+    def arun(self, initial_state:dict, thread_id:str='default') -> dict:
         return self.app.ainvoke(initial_state, {"configurable" : {"thread_id": thread_id}})

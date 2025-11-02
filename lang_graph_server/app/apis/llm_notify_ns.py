@@ -34,11 +34,14 @@ class NotifyLLMs(Resource):
             response = {"status": status, "messgae": message}
             return make_response(jsonify(response), status_code)
         
+
+
+
+        # ---------------------- Invoke all llms ---------------------- #
         try:
             status = 'success'
             status_code = 200
 
-            # ---------------------- Invoke all llms ---------------------- #
             llm_jball_response = lang_graph_app.jball_agent_wf.run(initial_state=payload_data)
             message = f"all agents have been notified: {llm_jball_response}"
 
