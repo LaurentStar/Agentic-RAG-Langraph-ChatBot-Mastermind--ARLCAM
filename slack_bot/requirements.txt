@@ -1,0 +1,16 @@
+# Slack SDK
+slack-bolt>=1.18.0
+slack-sdk>=3.23.0
+
+# Web framework
+flask>=3.0.0
+
+# HTTP client
+httpx>=0.25.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Development
+pytest>=8.0.0
+

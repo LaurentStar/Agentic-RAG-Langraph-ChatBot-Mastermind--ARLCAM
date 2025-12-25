@@ -1,0 +1,2 @@
+"""Coup agent decision nodes."""
+

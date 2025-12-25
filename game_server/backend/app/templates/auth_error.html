@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Error - Coup Game</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='w3.css') }}">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+        }
+        .error-card {
+            max-width: 450px;
+            margin: 0 auto;
+            margin-top: 10%;
+        }
+        .logo-text {
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .error-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .error-details {
+            background-color: #1a1a2e;
+            word-break: break-word;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .retry-btn {
+            background-color: #5865F2 !important;
+        }
+        .retry-btn:hover {
+            background-color: #4752c4 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="w3-container">
+        <div class="error-card w3-card-4 w3-round-xlarge w3-dark-grey">
+            <div class="w3-container w3-padding-24">
+                <!-- Error Icon -->
+                <div class="w3-center w3-margin-bottom">
+                    <div class="error-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </div>
+                </div>
+                
+                <!-- Title -->
+                <div class="w3-center w3-margin-bottom">
+                    <h2 class="logo-text">Authentication Failed</h2>
+                    <p class="w3-text-grey">Something went wrong during the login process.</p>
+                </div>
+                
+                <!-- Error Details -->
+                {% if error %}
+                <div class="w3-margin-top w3-margin-bottom">
+                    <label class="w3-text-grey w3-small">
+                        <strong>Error Details</strong>
+                    </label>
+                    <div class="error-details w3-padding w3-round w3-text-pink">
+                        {{ error }}
+                    </div>
+                </div>
+                {% endif %}
+                
+                <!-- Common Issues -->
+                <div class="w3-panel w3-round w3-leftbar w3-border-grey" style="background-color: #2d2d44;">
+                    <p class="w3-small w3-text-grey"><strong>Common issues:</strong></p>
+                    <ul class="w3-small w3-text-grey">
+                        <li>Authorization was denied or cancelled</li>
+                        <li>OAuth app misconfigured</li>
+                        <li>Network connectivity issue</li>
+                    </ul>
+                </div>
+                
+                <!-- Actions -->
+                <div class="w3-center w3-margin-top">
+                    <a href="/auth/oauth/login" class="w3-button w3-round retry-btn w3-text-white">
+                        Try Again
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

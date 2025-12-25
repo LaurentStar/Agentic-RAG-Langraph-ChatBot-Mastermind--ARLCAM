@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login Success - Coup Game</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='w3.css') }}">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+        }
+        .success-card {
+            max-width: 500px;
+            margin: 0 auto;
+            margin-top: 8%;
+        }
+        .logo-text {
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .token-display {
+            background-color: #1a1a2e;
+            word-break: break-all;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        .copy-btn {
+            background-color: #e94560 !important;
+        }
+        .copy-btn:hover {
+            background-color: #ff6b6b !important;
+        }
+        .checkmark {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="w3-container">
+        <div class="success-card w3-card-4 w3-round-xlarge w3-dark-grey">
+            <div class="w3-container w3-padding-24">
+                <!-- Success Icon -->
+                <div class="w3-center w3-margin-bottom">
+                    <div class="checkmark">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                </div>
+                
+                <!-- Title -->
+                <div class="w3-center w3-margin-bottom">
+                    <h2 class="logo-text">Authentication Successful!</h2>
+                    <p class="w3-text-grey">Welcome, <strong class="w3-text-white">{{ display_name }}</strong></p>
+                    <p class="w3-small w3-text-grey">via {{ provider }}</p>
+                </div>
+                
+                <!-- Tokens Section -->
+                <div class="w3-margin-top">
+                    <!-- Access Token -->
+                    <div class="w3-margin-bottom">
+                        <label class="w3-text-grey w3-small">
+                            <strong>Access Token</strong>
+                        </label>
+                        <div class="token-display w3-padding w3-round w3-text-light-grey" id="access-token">{{ access_token }}</div>
+                        <button onclick="copyToken('access-token')" class="w3-button w3-small w3-round copy-btn w3-text-white w3-margin-top">
+                            Copy Access Token
+                        </button>
+                    </div>
+                    
+                    <!-- Refresh Token -->
+                    <div class="w3-margin-bottom">
+                        <label class="w3-text-grey w3-small">
+                            <strong>Refresh Token</strong>
+                        </label>
+                        <div class="token-display w3-padding w3-round w3-text-light-grey" id="refresh-token">{{ refresh_token }}</div>
+                        <button onclick="copyToken('refresh-token')" class="w3-button w3-small w3-round copy-btn w3-text-white w3-margin-top">
+                            Copy Refresh Token
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Info -->
+                <div class="w3-panel w3-round w3-pale-yellow w3-leftbar w3-border-amber">
+                    <p class="w3-small">
+                        <strong>⚠️ Developer Mode:</strong> In production, tokens are stored securely and not displayed.
+                    </p>
+                </div>
+                
+                <!-- Footer -->
+                <div class="w3-center w3-margin-top">
+                    <a href="/auth/oauth/login" class="w3-button w3-round w3-grey">Back to Login</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function copyToken(elementId) {
+            const tokenElement = document.getElementById(elementId);
+            const token = tokenElement.innerText;
+            navigator.clipboard.writeText(token).then(() => {
+                const btn = event.target;
+                const originalText = btn.innerText;
+                btn.innerText = 'Copied!';
+                btn.classList.add('w3-green');
+                btn.classList.remove('copy-btn');
+                setTimeout(() => {
+                    btn.innerText = originalText;
+                    btn.classList.remove('w3-green');
+                    btn.classList.add('copy-btn');
+                }, 2000);
+            });
+        }
+    </script>
+</body>
+</html>
