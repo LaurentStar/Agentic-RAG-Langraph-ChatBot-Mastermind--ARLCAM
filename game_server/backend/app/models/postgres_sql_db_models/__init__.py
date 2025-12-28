@@ -4,6 +4,8 @@ PostgreSQL ORM Models.
 All SQLAlchemy models for the game server database.
 """
 
+from app.models.postgres_sql_db_models.account_flag import AccountFlag
+from app.models.postgres_sql_db_models.account_link_request import AccountLinkRequest
 from app.models.postgres_sql_db_models.agent_profile import AgentProfile
 from app.models.postgres_sql_db_models.broadcast_destination import BroadcastDestination
 from app.models.postgres_sql_db_models.chat_bot_endpoint import ChatBotEndpoint
@@ -14,15 +16,17 @@ from app.models.postgres_sql_db_models.player import Player, ToBeInitiatedUpgrad
 from app.models.postgres_sql_db_models.reaction import Reaction, TurnResult as TurnResultORM
 
 __all__ = [
-    "Player",
-    "ToBeInitiatedUpgradeDetails",
-    "GameSession",
-    "BroadcastDestination",
+    "AccountFlag",
+    "AccountLinkRequest",
     "AgentProfile",
-    "Reaction",
-    "TurnResultORM",
-    "ChatMessage",
+    "BroadcastDestination",
     "ChatBotEndpoint",
+    "ChatMessage",
+    "GameSession",
     "OAuthIdentity",
+    "Player",
+    "Reaction",
+    "ToBeInitiatedUpgradeDetails",
+    "TurnResultORM",
 ]
 

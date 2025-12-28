@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Linked - Coup Game</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo h1 {
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-size: 28px;
+            margin: 0;
+        }
+        .content {
+            text-align: center;
+        }
+        .checkmark {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+        .content h2 {
+            color: #ffffff;
+            font-size: 22px;
+            margin-bottom: 16px;
+        }
+        .content p {
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        .highlight {
+            color: #00d9a5;
+            font-weight: 600;
+        }
+        .provider-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        .info-box {
+            background-color: rgba(0, 217, 165, 0.1);
+            border-left: 4px solid #00d9a5;
+            padding: 16px;
+            border-radius: 4px;
+            margin-top: 30px;
+            text-align: left;
+        }
+        .info-box p {
+            margin: 0;
+            color: #00d9a5;
+            font-size: 14px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #2a2a4e;
+        }
+        .footer p {
+            color: #606080;
+            font-size: 12px;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>COUP GAME</h1>
+        </div>
+        
+        <div class="content">
+            <div class="checkmark">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+            </div>
+            
+            <h2>Account Linked Successfully!</h2>
+            
+            <p>
+                Hello <span class="highlight">{{ player_name }}</span>,
+            </p>
+            
+            <p>
+                Your account has been successfully linked with:
+            </p>
+            
+            <div class="provider-badge">{{ target_provider }}</div>
+            
+            <p style="margin-top: 24px;">
+                You can now log in using either your existing method or via {{ target_provider }}.
+                Both will access the same player account.
+            </p>
+        </div>
+        
+        <div class="info-box">
+            <p>
+                <strong>What's next?</strong><br>
+                Try logging in via {{ target_provider }} to confirm everything is working.
+                Your game progress, stats, and preferences are shared across all linked accounts.
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>This email was sent by Coup Game. Do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>
+

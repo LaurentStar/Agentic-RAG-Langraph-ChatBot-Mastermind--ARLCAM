@@ -29,7 +29,7 @@ async def graceful_shutdown(
     
     logger.info("Initiating graceful shutdown...")
     
-    # Stop Flask server
+    # Stop Flask server first (synchronous, runs in thread)
     if flask_server:
         try:
             stop_flask_server(flask_server)
@@ -37,21 +37,35 @@ async def graceful_shutdown(
             logger.warning(f"Error stopping Flask server: {e}")
     
     # Close Discord bot
-    if bot:
+    if bot and not bot.is_closed():
         try:
             await bot.close()
             logger.info("Discord bot closed")
         except Exception as e:
             logger.warning(f"Error closing bot: {e}")
     
-    # Cancel pending tasks
-    pending = asyncio.all_tasks(loop)
-    for task in pending:
-        task.cancel()
+    # Cancel pending tasks (except current one)
+    current_task = asyncio.current_task()
+    pending = [
+        task for task in asyncio.all_tasks(loop) 
+        if task is not current_task and not task.done()
+    ]
     
     if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
-        logger.info(f"Cancelled {len(pending)} pending tasks")
+        logger.info(f"Cancelling {len(pending)} pending tasks...")
+        for task in pending:
+            task.cancel()
+        
+        # Wait for tasks to finish with timeout
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True),
+                timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Some tasks did not cancel within timeout")
+        
+        logger.info("Pending tasks cancelled")
     
     logger.info("Graceful shutdown complete")
 

@@ -1,7 +1,7 @@
 """
 Database Models.
 
-SQLAlchemy ORM models for Discord bot logging.
+SQLAlchemy ORM models for Discord bot logging and caching.
 """
 
 from datetime import datetime, timezone
@@ -11,6 +11,55 @@ from sqlalchemy import String, Text, Integer, DateTime, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.extensions import db
+
+
+class TokenCache(db.Model):
+    """
+    Discord Token Cache Table.
+    
+    Caches JWT tokens for Discord users who have linked their accounts.
+    Avoids repeated calls to game server for token lookup.
+    """
+    __tablename__ = 'discord_cache_tokens'
+    
+    # Discord user ID as primary key (one cache entry per user)
+    discord_user_id: Mapped[str] = mapped_column(String(30), primary_key=True)
+    
+    # Cached tokens
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Player info from game server
+    player_display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    player_type: Mapped[str] = mapped_column(String(20), default="human")
+    
+    # Cache metadata
+    cached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True
+    )
+    
+    def __repr__(self):
+        return f"<TokenCache {self.discord_user_id} -> {self.player_display_name}>"
+    
+    def to_dict(self):
+        """Convert to dictionary."""
+        return {
+            'discord_user_id': self.discord_user_id,
+            'player_display_name': self.player_display_name,
+            'player_type': self.player_type,
+            'cached_at': self.cached_at.isoformat() if self.cached_at else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None
+        }
+    
+    def is_expired(self) -> bool:
+        """Check if the cached token has expired."""
+        return datetime.now(timezone.utc) >= self.expires_at
 
 
 class DiscordBotLog(db.Model):

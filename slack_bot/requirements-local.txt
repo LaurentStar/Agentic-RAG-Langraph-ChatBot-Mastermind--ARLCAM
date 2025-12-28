@@ -1,0 +1,24 @@
+# Local Development Requirements
+# Install with: pip install -r requirements-local.txt
+
+# Include base requirements
+-r requirements.txt
+
+# =============================================
+# Local Development Only
+# =============================================
+
+# Tunneling (exposes local server to internet for Slack webhooks)
+pyngrok>=7.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-cov>=4.1.0
+
+# Code quality
+flake8>=7.0.0
+black>=24.0.0
+
+# Debugging
+ipdb>=0.13.0
+

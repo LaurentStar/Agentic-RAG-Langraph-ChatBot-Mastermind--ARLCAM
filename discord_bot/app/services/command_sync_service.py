@@ -20,7 +20,8 @@ from app.services.command_registration_service import CommandRegistrationService
 logger = logging.getLogger("discord_bot")
 
 # Path to temp directory for sync status
-TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "temp")
+# Go up from services/ to app/, then into temp/
+TEMP_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "temp")
 SYNC_STATUS_FILE = os.path.join(TEMP_DIR, "command_sync_status.json")
 
 
@@ -37,6 +38,45 @@ class CommandSyncService:
     """
     
     @staticmethod
+    def _normalize_option(option: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize an option dict for consistent comparison.
+        
+        Discord's API may omit fields or represent them differently.
+        This ensures both local and remote options have the same structure.
+        
+        Args:
+            option: Option dict (from local or Discord)
+            
+        Returns:
+            Normalized option dict
+        """
+        return {
+            "name": option.get("name", ""),
+            "description": option.get("description", ""),
+            "type": option.get("type", 3),  # Default to STRING type
+            "required": bool(option.get("required", False)),  # Normalize to bool, default False
+        }
+    
+    @staticmethod
+    def _normalize_options(options: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Normalize a list of options for consistent comparison.
+        
+        Args:
+            options: List of option dicts
+            
+        Returns:
+            List of normalized option dicts (sorted by name for consistent hashing)
+        """
+        normalized = [
+            CommandSyncService._normalize_option(opt) 
+            for opt in options
+        ]
+        # Sort by name for consistent hash computation
+        return sorted(normalized, key=lambda x: x["name"])
+    
+    @staticmethod
     def _serialize_option(param: app_commands.Parameter) -> Dict[str, Any]:
         """
         Serialize a command parameter/option to a dict.
@@ -51,7 +91,7 @@ class CommandSyncService:
             "name": param.name,
             "description": param.description,
             "type": param.type.value,
-            "required": param.required,
+            "required": bool(param.required),  # Ensure boolean
         }
         
         # Add choices if present
@@ -68,14 +108,31 @@ class CommandSyncService:
         """
         Compute a hash of command definition for change detection.
         
+        Normalizes options before hashing to ensure consistent comparison
+        between local definitions and Discord's API response.
+        
         Args:
             command_data: Command definition dict
             
         Returns:
             MD5 hash string
         """
+        # Normalize for consistent hashing
+        normalized = {
+            "name": command_data.get("name", ""),
+            "description": command_data.get("description", ""),
+            "type": command_data.get("type", 1),
+            "options": CommandSyncService._normalize_options(
+                command_data.get("options", [])
+            ),
+        }
+        
+        # Include permissions if present
+        if command_data.get("default_member_permissions"):
+            normalized["default_member_permissions"] = command_data["default_member_permissions"]
+        
         # Create a stable string representation
-        hash_input = json.dumps(command_data, sort_keys=True)
+        hash_input = json.dumps(normalized, sort_keys=True)
         return hashlib.md5(hash_input.encode()).hexdigest()[:12]
     
     @staticmethod
@@ -263,9 +320,15 @@ class CommandSyncService:
         if local.get("description") != remote.get("description"):
             changes.append("description changed")
         
-        # Check options
-        local_options = {o["name"]: o for o in local.get("options", [])}
-        remote_options = {o["name"]: o for o in remote.get("options", [])}
+        # Normalize options for comparison
+        local_options = {
+            o["name"]: CommandSyncService._normalize_option(o) 
+            for o in local.get("options", [])
+        }
+        remote_options = {
+            o["name"]: CommandSyncService._normalize_option(o) 
+            for o in remote.get("options", [])
+        }
         
         for opt_name in set(local_options.keys()) - set(remote_options.keys()):
             changes.append(f"added option: {opt_name}")
@@ -277,11 +340,11 @@ class CommandSyncService:
             local_opt = local_options[opt_name]
             remote_opt = remote_options[opt_name]
             
-            if local_opt.get("description") != remote_opt.get("description"):
+            if local_opt["description"] != remote_opt["description"]:
                 changes.append(f"option '{opt_name}' description changed")
-            if local_opt.get("type") != remote_opt.get("type"):
+            if local_opt["type"] != remote_opt["type"]:
                 changes.append(f"option '{opt_name}' type changed")
-            if local_opt.get("required") != remote_opt.get("required"):
+            if local_opt["required"] != remote_opt["required"]:
                 changes.append(f"option '{opt_name}' required changed")
         
         return changes if changes else ["hash mismatch (internal changes)"]
@@ -537,6 +600,107 @@ class CommandSyncService:
                 logger.info(f"Re-registered command: {name}")
             
             successful.append(name)
+        
+        return successful, failed
+    
+    @staticmethod
+    def refresh_sync_status(
+        bot: "commands.Bot",
+        guild_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Refresh the sync status JSON by re-comparing local and remote commands.
+        
+        Call this after any sync operation to ensure the status file is accurate.
+        
+        Args:
+            bot: Discord bot instance
+            guild_id: Guild ID for guild-specific commands
+            
+        Returns:
+            Updated comparison result
+        """
+        # Extract current local commands
+        local_commands = CommandSyncService.extract_local_commands(bot)
+        
+        # Fetch current Discord commands
+        discord_commands, error = CommandSyncService.fetch_discord_commands(guild_id)
+        
+        if error:
+            logger.error(f"Failed to refresh sync status: {error}")
+            return {"error": error}
+        
+        # Compare and save
+        comparison = CommandSyncService.compare_commands(local_commands, discord_commands)
+        CommandSyncService.save_sync_status(comparison, guild_id)
+        
+        logger.info("Sync status refreshed")
+        return comparison
+    
+    @staticmethod
+    def delete_orphaned_commands(
+        command_names: List[str],
+        guild_id: Optional[str] = None,
+        delete_all: bool = False
+    ) -> Tuple[List[str], List[str]]:
+        """
+        Delete orphaned commands from Discord.
+        
+        Args:
+            command_names: Specific command names to delete (ignored if delete_all=True)
+            guild_id: Guild ID for guild-specific commands
+            delete_all: If True, delete ALL orphaned commands
+            
+        Returns:
+            Tuple of (successful, failed) command names
+        """
+        status = CommandSyncService.load_sync_status()
+        if not status:
+            logger.warning("No sync status available")
+            return [], command_names
+        
+        # Get list of orphaned commands
+        orphaned = {}
+        for name, cmd_info in status.get("commands", {}).items():
+            if cmd_info.get("status") == "orphaned":
+                orphaned[name] = cmd_info
+        
+        if not orphaned:
+            logger.info("No orphaned commands found")
+            return [], []
+        
+        # Determine which commands to delete
+        if delete_all:
+            to_delete = list(orphaned.keys())
+        else:
+            # Only delete specified commands that are actually orphaned
+            to_delete = [name for name in command_names if name in orphaned]
+            
+            # Log warnings for non-orphaned commands
+            for name in command_names:
+                if name not in orphaned:
+                    logger.warning(f"Command '{name}' is not orphaned, skipping")
+        
+        successful = []
+        failed = []
+        
+        for name in to_delete:
+            cmd_info = orphaned[name]
+            remote_id = cmd_info.get("remote_id")
+            
+            if not remote_id:
+                logger.warning(f"No remote_id for orphaned command '{name}'")
+                failed.append(name)
+                continue
+            
+            success, error = CommandRegistrationService.delete_command(remote_id, guild_id)
+            
+            if success:
+                successful.append(name)
+                logger.info(f"Deleted orphaned command: {name}")
+            else:
+                failed.append(name)
+                logger.error(f"Failed to delete orphaned command '{name}': {error}")
         
         return successful, failed
 

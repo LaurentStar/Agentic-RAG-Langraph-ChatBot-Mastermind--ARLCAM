@@ -23,6 +23,10 @@ from app.apis import (
     # Admin
     admin_session_ns,
     admin_player_ns,
+    admin_flags_ns,
+    # Account
+    link_ns,
+    identity_ns,
     # Game
     actions_ns,
     chat_ns,
@@ -37,6 +41,8 @@ from app.apis import (
 
 # Import all models (required for db.create_all() to work)
 from app.models.postgres_sql_db_models import (
+    AccountFlag,
+    AccountLinkRequest,
     AgentProfile,
     BroadcastDestination,
     ChatBotEndpoint,
@@ -97,23 +103,12 @@ def create_app(test_config=None):
     db.init_app(app)
     
     # REST API
-    # JWT Bearer token authorization for Swagger UI
-    authorizations = {
-        'Bearer': {
-            'type': 'apiKey',
-            'in': 'header',
-            'name': 'Authorization',
-            'description': 'JWT token. Format: "Bearer {token}"'
-        }
-    }
-    
+    # api is declared in extensions.py (with authorizations for Swagger UI)
     api.init_app(
         app,
         version='1.0',
         title='Game Server API',
-        description='APIs for managing Coup game sessions, players, and gameplay',
-        authorizations=authorizations,
-        security='Bearer'
+        description='APIs for managing Coup game sessions, players, and gameplay'
     )
     
     # Scheduler
@@ -129,6 +124,11 @@ def create_app(test_config=None):
     # Admin domain
     api.add_namespace(admin_session_ns, path='/admin/sessions')
     api.add_namespace(admin_player_ns, path='/admin/players')
+    api.add_namespace(admin_flags_ns, path='/admin/flags')
+    
+    # Account domain
+    api.add_namespace(link_ns, path='/account/link')
+    api.add_namespace(identity_ns, path='/account/identities')
     
     # Game domain
     api.add_namespace(game_session_ns, path='/game/sessions')
@@ -142,6 +142,25 @@ def create_app(test_config=None):
     
     # System domain
     api.add_namespace(health_ns, path='/health')
+    
+    # =============================================
+    # LOCAL DEVELOPMENT (conditional)
+    # =============================================
+    if os.getenv("ENVIRONMENT", "local") == "local":
+        from app.apis.local.proxy import slack_proxy_ns
+        from app.lifecycle.ngrok_tunnel import start_tunnel
+        
+        # Register proxy routes
+        api.add_namespace(slack_proxy_ns, path='/local/proxy/slack')
+        
+        # Start ngrok tunnel
+        port = int(os.getenv("GAME_SERVER_PORT", "4000"))
+        public_url = start_tunnel(port)
+        if public_url:
+            app.logger.info(f"Local development mode enabled")
+            app.logger.info(f"Public URL: {public_url}")
+            app.logger.info(f"Slack events: {public_url}/local/proxy/slack/events")
+            app.logger.info(f"Slack commands: {public_url}/local/proxy/slack/commands")
     
     # ---------------------- Create Database Tables ---------------------- #
     with app.app_context():

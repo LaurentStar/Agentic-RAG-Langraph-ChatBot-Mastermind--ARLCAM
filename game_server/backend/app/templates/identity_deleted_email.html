@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identity Removed - Coup Game</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo h1 {
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-size: 28px;
+            margin: 0;
+        }
+        .content {
+            text-align: center;
+        }
+        .warning-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+        }
+        .content h2 {
+            color: #ffffff;
+            font-size: 22px;
+            margin-bottom: 16px;
+        }
+        .content p {
+            color: #a0a0a0;
+            line-height: 1.6;
+            margin-bottom: 16px;
+        }
+        .highlight {
+            color: #f39c12;
+            font-weight: 600;
+        }
+        .provider-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        .grace-box {
+            background-color: rgba(243, 156, 18, 0.1);
+            border-left: 4px solid #f39c12;
+            padding: 16px;
+            border-radius: 4px;
+            margin-top: 30px;
+            text-align: left;
+        }
+        .grace-box p {
+            margin: 0;
+            color: #f39c12;
+            font-size: 14px;
+        }
+        .restore-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            color: #1a1a2e;
+            text-decoration: none;
+            padding: 12px 32px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 14px;
+            margin-top: 24px;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #2a2a4e;
+        }
+        .footer p {
+            color: #606080;
+            font-size: 12px;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <h1>COUP GAME</h1>
+        </div>
+        
+        <div class="content">
+            <div class="warning-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="12"></line>
+                    <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                </svg>
+            </div>
+            
+            <h2>OAuth Identity Removed</h2>
+            
+            <p>
+                Hello <span class="highlight">{{ player_name }}</span>,
+            </p>
+            
+            <p>
+                Your linked identity has been scheduled for removal:
+            </p>
+            
+            <div class="provider-badge">{{ provider }}</div>
+            
+            <p style="margin-top: 24px;">
+                You will no longer be able to log in via {{ provider }} after the grace period.
+            </p>
+        </div>
+        
+        <div class="grace-box">
+            <p>
+                <strong>7-Day Grace Period</strong><br>
+                You can restore this identity until <strong>{{ restore_deadline }}</strong>.
+                After this date, the identity will be permanently deleted.
+            </p>
+        </div>
+        
+        <div class="content">
+            <p class="w3-small" style="margin-top: 24px;">
+                To restore, log in with your other linked account and visit Account Settings.
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>
+                If you did not request this, please log in immediately and restore your identity.
+            </p>
+            <p style="margin-top: 8px;">This email was sent by Coup Game. Do not reply to this email.</p>
+        </div>
+    </div>
+</body>
+</html>
+

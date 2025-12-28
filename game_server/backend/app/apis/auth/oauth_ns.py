@@ -280,3 +280,72 @@ class SlackCallback(Resource):
             refresh_token=refresh_token
         )
 
+
+# =============================================
+# Token by Provider (for Discord Bot integration)
+# =============================================
+
+@oauth_ns.route('/token-by-provider')
+class TokenByProvider(Resource):
+    """Get JWT token for a linked OAuth account."""
+    
+    @oauth_ns.doc(
+        responses={
+            200: 'Success - returns JWT tokens',
+            400: 'Bad request - missing parameters',
+            404: 'Account not linked'
+        },
+        params={
+            'provider': 'OAuth provider (discord, google, slack)',
+            'provider_user_id': 'User ID from the provider'
+        }
+    )
+    def post(self):
+        """
+        Get JWT tokens for a user who has already linked their account.
+        
+        Used by Discord/Slack bots to get tokens for users who have
+        previously completed the OAuth flow.
+        
+        Request body:
+        {
+            "provider": "discord",
+            "provider_user_id": "123456789012345678"
+        }
+        
+        Returns JWT access and refresh tokens if account is linked.
+        Returns 404 if no linked account found.
+        """
+        data = request.get_json() or {}
+        
+        provider = data.get('provider')
+        provider_user_id = data.get('provider_user_id')
+        
+        if not provider:
+            return {"error": "Missing 'provider' parameter"}, 400
+        
+        if not provider_user_id:
+            return {"error": "Missing 'provider_user_id' parameter"}, 400
+        
+        if provider not in ('discord', 'google', 'slack'):
+            return {"error": "Invalid provider. Must be: discord, google, slack"}, 400
+        
+        # Look up the linked account
+        player, error = OAuthService.get_player_by_provider(provider, str(provider_user_id))
+        
+        if error:
+            logger.warning(f"Token lookup failed: {provider}:{provider_user_id} - {error}")
+            return {"error": error}, 404
+        
+        # Generate JWT tokens
+        access_token, refresh_token = OAuthService.create_tokens_for_player(player)
+        
+        logger.info(f"Token issued for {provider}:{provider_user_id} -> {player.display_name}")
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "player_display_name": player.display_name,
+            "player_type": player.player_type.value if player.player_type else "human"
+        }, 200
+

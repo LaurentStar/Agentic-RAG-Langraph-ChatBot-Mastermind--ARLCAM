@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Link Confirmed - Coup Game</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='w3.css') }}">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+        }
+        .success-card {
+            max-width: 500px;
+            margin: 0 auto;
+            margin-top: 8%;
+        }
+        .logo-text {
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .checkmark {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #00d9a5 0%, #00ff88 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .pending-icon {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .provider-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #e94560 0%, #ff6b6b 100%);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+        .status-box {
+            background-color: #1a1a2e;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        .status-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+        }
+        .status-confirmed {
+            color: #00d9a5;
+        }
+        .status-pending {
+            color: #f39c12;
+        }
+    </style>
+</head>
+<body>
+    <div class="w3-container">
+        <div class="success-card w3-card-4 w3-round-xlarge w3-dark-grey">
+            <div class="w3-container w3-padding-24">
+                <!-- Icon -->
+                <div class="w3-center w3-margin-bottom">
+                    {% if link_request.is_complete %}
+                    <div class="checkmark">
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    {% else %}
+                    <div class="pending-icon">
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="8" x2="12" y2="12"></line>
+                            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                        </svg>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- Title -->
+                <div class="w3-center w3-margin-bottom">
+                    {% if link_request.is_complete %}
+                    <h2 class="logo-text">Link Complete!</h2>
+                    <p class="w3-text-grey">Your accounts are now linked.</p>
+                    {% else %}
+                    <h2 class="logo-text">Email Confirmed</h2>
+                    <p class="w3-text-grey">Waiting for the other email confirmation.</p>
+                    {% endif %}
+                </div>
+                
+                <!-- Details -->
+                <div class="w3-center">
+                    <p class="w3-text-grey">Player: <strong class="w3-text-white">{{ link_request.player_display_name }}</strong></p>
+                    <p class="w3-text-grey">Linking to: <span class="provider-badge">{{ link_request.target_provider }}</span></p>
+                </div>
+                
+                <!-- Status -->
+                <div class="status-box">
+                    <div class="status-item">
+                        <span class="w3-text-grey">Primary Email</span>
+                        {% if link_request.primary_confirmed %}
+                        <span class="status-confirmed">Confirmed</span>
+                        {% else %}
+                        <span class="status-pending">Pending</span>
+                        {% endif %}
+                    </div>
+                    <div class="status-item">
+                        <span class="w3-text-grey">{{ link_request.target_provider | title }} Email</span>
+                        {% if link_request.secondary_confirmed %}
+                        <span class="status-confirmed">Confirmed</span>
+                        {% else %}
+                        <span class="status-pending">Pending</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                {% if message %}
+                <div class="w3-panel w3-round w3-pale-blue w3-leftbar w3-border-blue">
+                    <p class="w3-small">{{ message }}</p>
+                </div>
+                {% endif %}
+                
+                {% if link_request.is_complete %}
+                <!-- Success Info -->
+                <div class="w3-panel w3-round w3-pale-green w3-leftbar w3-border-green">
+                    <p class="w3-small">
+                        <strong>Success!</strong> You can now log in via {{ link_request.target_provider | title }} 
+                        and it will be linked to your existing account.
+                    </p>
+                </div>
+                {% else %}
+                <!-- Pending Info -->
+                <div class="w3-panel w3-round w3-pale-yellow w3-leftbar w3-border-amber">
+                    <p class="w3-small">
+                        <strong>Almost there!</strong> Check your other email ({{ link_request.target_email }}) 
+                        and click the confirmation link to complete the process.
+                    </p>
+                </div>
+                {% endif %}
+                
+                <!-- Footer -->
+                <div class="w3-center w3-margin-top">
+                    <p class="w3-small w3-text-grey">You can close this window.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

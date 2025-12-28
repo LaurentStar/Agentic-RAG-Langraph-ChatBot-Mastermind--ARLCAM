@@ -1,0 +1,18 @@
+# Inherit production dependencies
+-r requirements.txt
+
+# Ngrok for local tunneling
+pyngrok>=6.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.23.0
+
+# Code quality
+flake8>=7.0.0
+black>=24.0.0
+
+# Debugging
+ipdb>=0.13.0
+

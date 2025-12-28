@@ -191,6 +191,33 @@ def register_admin_models(api):
         )
     })
     
+    orphan_delete_request = api.model('OrphanDeleteRequest', {
+        'commands': fields.List(
+            fields.String,
+            description='List of orphaned command names to delete (ignored if delete_all=true)',
+            example=['old-command', 'unused-command']
+        ),
+        'delete_all': fields.Boolean(
+            description='If true, delete ALL orphaned commands',
+            example=False
+        )
+    })
+    
+    orphan_delete_response = api.model('OrphanDeleteResponse', {
+        'successful': fields.List(
+            fields.String,
+            description='Commands deleted successfully'
+        ),
+        'failed': fields.List(
+            fields.String,
+            description='Commands that failed to delete'
+        ),
+        'message': fields.String(
+            description='Summary message',
+            example='Deleted 5 orphaned commands'
+        )
+    })
+    
     return {
         'command_option': command_option,
         'command_request': command_request,
@@ -201,6 +228,8 @@ def register_admin_models(api):
         'orphaned_command': orphaned_command,
         'sync_status_response': sync_status_response,
         'sync_request': sync_request,
-        'sync_response': sync_response
+        'sync_response': sync_response,
+        'orphan_delete_request': orphan_delete_request,
+        'orphan_delete_response': orphan_delete_response
     }
 

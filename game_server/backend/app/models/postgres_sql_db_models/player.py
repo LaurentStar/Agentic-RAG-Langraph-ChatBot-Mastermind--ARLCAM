@@ -30,9 +30,17 @@ class Player(db.Model):
     # ---------------------- Player Identity ---------------------- #
     display_name: Mapped[str] = mapped_column(primary_key=True)
     social_media_platform_display_name: Mapped[str] = mapped_column(String, nullable=False)
-    social_media_platform: Mapped[SocialMediaPlatform] = mapped_column(
+    
+    # ---------------------- Platform Loyalty ---------------------- #
+    # Tracks all platforms the player has registered on (for loyalty bonuses)
+    social_media_platforms: Mapped[List[SocialMediaPlatform]] = mapped_column(
+        postgresql.ARRAY(postgresql.ENUM(SocialMediaPlatform, name="social_media_platform_enum", create_type=True)),
+        default=[]
+    )
+    # Player's preferred platform (for tribalistic grouping)
+    preferred_social_media_platform: Mapped[Optional[SocialMediaPlatform]] = mapped_column(
         postgresql.ENUM(SocialMediaPlatform, name="social_media_platform_enum", create_type=True),
-        default=SocialMediaPlatform.DEFAULT
+        nullable=True
     )
     
     # ---------------------- Player Type & Auth ---------------------- #
@@ -104,6 +112,21 @@ class Player(db.Model):
         if self.is_admin:
             return True
         return privilege in (self.game_privileges or [])
+    
+    # ---------------------- Platform Loyalty Helpers ---------------------- #
+    @property
+    def platform_count(self) -> int:
+        """Number of platforms registered on."""
+        return len(self.social_media_platforms or [])
+    
+    @property
+    def is_multi_platform(self) -> bool:
+        """True if registered on 2+ platforms."""
+        return self.platform_count >= 2
+    
+    def has_platform(self, platform: SocialMediaPlatform) -> bool:
+        """Check if player has registered on a specific platform."""
+        return platform in (self.social_media_platforms or [])
 
 
 class ToBeInitiatedUpgradeDetails(db.Model):

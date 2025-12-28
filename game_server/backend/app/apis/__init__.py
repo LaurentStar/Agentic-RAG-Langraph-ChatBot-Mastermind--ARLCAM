@@ -2,8 +2,9 @@
 Game Server APIs.
 
 Organized into domains:
-- auth/    - Authentication (login, token refresh)
+- auth/    - Authentication (login, token refresh, OAuth)
 - admin/   - Privileged operations (session/player management)
+- account/ - Account management (linking, identities)
 - game/    - Gameplay (actions, reactions, state, sessions)
 - players/ - Player self-service (registration, profile)
 - system/  - Infrastructure (health checks)
@@ -13,7 +14,10 @@ Organized into domains:
 from app.apis.auth import auth_ns, oauth_ns
 
 # Admin
-from app.apis.admin import admin_session_ns, admin_player_ns
+from app.apis.admin import admin_session_ns, admin_player_ns, admin_flags_ns
+
+# Account
+from app.apis.account import link_ns, identity_ns
 
 # Game
 from app.apis.game import actions_ns, chat_ns, reactions_ns, state_ns, game_session_ns
@@ -31,6 +35,10 @@ __all__ = [
     # Admin
     "admin_session_ns",
     "admin_player_ns",
+    "admin_flags_ns",
+    # Account
+    "link_ns",
+    "identity_ns",
     # Game
     "actions_ns",
     "chat_ns",

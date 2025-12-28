@@ -25,7 +25,21 @@ db = SQLAlchemy(model_class=Base)
 #=====================#
 # RESTX API EXTENSION #
 #=====================#
-api = Api()
+# JWT Bearer token authorization for Swagger UI
+# Note: authorizations must be passed at Api() declaration for Swagger UI button to appear
+authorizations = {
+    'Bearer': {
+        'type': 'apiKey',
+        'in': 'header',
+        'name': 'Authorization',
+        'description': 'JWT token. Format: "Bearer {token}"'
+    }
+}
+
+api = Api(
+    authorizations=authorizations,
+    security='Bearer'
+)
 
 
 #===================#

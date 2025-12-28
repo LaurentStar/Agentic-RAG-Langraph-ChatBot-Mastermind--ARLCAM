@@ -61,6 +61,15 @@ class OAuthIdentity(db.Model):
         nullable=True
     )
     
+    # ---------------------- Soft Delete ---------------------- #
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        index=True
+    )
+    # When set, identity is soft-deleted with 7-day grace period for restoration
+    
     # ---------------------- Relationships ---------------------- #
     player = relationship("Player", back_populates="oauth_identities")
     
@@ -69,12 +78,24 @@ class OAuthIdentity(db.Model):
         db.UniqueConstraint('provider', 'provider_user_id', name='uix_provider_user'),
     )
     
-    def __repr__(self):
-        return f"<OAuthIdentity {self.provider}:{self.provider_user_id} -> {self.player_display_name}>"
+    # ---------------------- Helper Properties ---------------------- #
+    @property
+    def is_deleted(self) -> bool:
+        """Check if identity is soft-deleted."""
+        return self.deleted_at is not None
     
-    def to_dict(self):
+    @property
+    def is_active(self) -> bool:
+        """Check if identity is active (not deleted)."""
+        return self.deleted_at is None
+    
+    def __repr__(self):
+        status = " [DELETED]" if self.is_deleted else ""
+        return f"<OAuthIdentity {self.provider}:{self.provider_user_id} -> {self.player_display_name}{status}>"
+    
+    def to_dict(self, include_deleted: bool = False):
         """Convert to dictionary."""
-        return {
+        result = {
             'id': self.id,
             'player_display_name': self.player_display_name,
             'provider': self.provider,
@@ -83,6 +104,10 @@ class OAuthIdentity(db.Model):
             'provider_email': self.provider_email,
             'provider_avatar_url': self.provider_avatar_url,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None
+            'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,
+            'is_active': self.is_active
         }
+        if include_deleted:
+            result['deleted_at'] = self.deleted_at.isoformat() if self.deleted_at else None
+        return result
 

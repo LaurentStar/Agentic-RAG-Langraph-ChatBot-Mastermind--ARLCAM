@@ -21,7 +21,10 @@ from app.apis.broadcast_ns import broadcast_ns
 from app.apis.admin_ns import admin_ns
 
 # ---------------------- Models ---------------------- #
-from app.database.db_models import DiscordBotLog
+from app.database.db_models import DiscordBotLog, TokenCache
+
+# ---------------------- Services ---------------------- #
+from app.services.token_cache_service import TokenCacheService
 
 
 logger = logging.getLogger("discord_bot")
@@ -91,25 +94,13 @@ def create_app(bot_loop=None):
     #-------------------#
     # REST API          #
     #-------------------#
-    # api is declared in extensions.py
-    # JWT Bearer token authorization for Swagger UI
-    authorizations = {
-        'Bearer': {
-            'type': 'apiKey',
-            'in': 'header',
-            'name': 'Authorization',
-            'description': 'JWT token. Format: "Bearer {token}"'
-        }
-    }
-    
+    # api is declared in extensions.py (with authorizations for Swagger UI)
     api.init_app(
         app,
         title='Discord Bot API',
         version='1.0',
         description='REST APIs for Discord bot operations',
-        doc='/docs',
-        authorizations=authorizations,
-        security='Bearer'
+        doc='/docs'
     )
     
     
@@ -128,6 +119,9 @@ def create_app(bot_loop=None):
         with app.app_context():
             db.create_all()
             logger.info("Database tables verified/created")
+        
+        # Initialize TokenCacheService with app for context access
+        TokenCacheService.init_app(app)
     
     
     #-------------------#

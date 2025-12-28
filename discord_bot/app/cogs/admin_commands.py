@@ -2,7 +2,7 @@
 Admin Commands Cog.
 
 Discord slash commands for game session management.
-Requires admin privileges on the game server.
+Uses per-user OAuth authentication - each user must link their Discord account.
 
 Naming Convention:
 - Category uses underscores: game_session
@@ -21,12 +21,17 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from app.decorators import requires_linked_account
+
 logger = logging.getLogger("discord_bot")
 
 
 class AdminCommands(commands.Cog, name="admin_commands"):
     """
     Admin commands for game session management.
+    
+    All commands require a linked Discord account.
+    The game server validates user privileges for admin actions.
     
     Commands:
     - /game_session-create: Create a new game session
@@ -40,7 +45,6 @@ class AdminCommands(commands.Cog, name="admin_commands"):
         
         # Configuration from environment
         self.game_server_url = os.getenv("GAME_SERVER_URL", "http://localhost:5000")
-        self.admin_token = os.getenv("DISCORD_BOT_ADMIN_TOKEN", "")
         
         # HTTP session for async requests
         self._http_session: Optional[aiohttp.ClientSession] = None
@@ -59,12 +63,62 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             await self._http_session.close()
             logger.info("AdminCommands HTTP session closed")
     
-    def _get_auth_headers(self) -> dict:
-        """Get authorization headers for game server requests."""
+    def _get_user_headers(self, interaction: discord.Interaction) -> dict:
+        """
+        Get authorization headers using the user's JWT token.
+        
+        The token is injected by @requires_linked_account decorator.
+        
+        Args:
+            interaction: Discord interaction with jwt_token in extras
+            
+        Returns:
+            Headers dict with Bearer token
+        """
+        jwt_token = interaction.extras.get('jwt_token', '')
         return {
-            "Authorization": f"Bearer {self.admin_token}",
+            "Authorization": f"Bearer {jwt_token}",
             "Content-Type": "application/json"
         }
+    
+    async def _handle_error_response(
+        self,
+        interaction: discord.Interaction,
+        response: aiohttp.ClientResponse,
+        action: str
+    ) -> None:
+        """
+        Handle error responses from game server.
+        
+        Args:
+            interaction: Discord interaction
+            response: aiohttp response object
+            action: Description of action (for error messages)
+        """
+        if response.status == 403:
+            await interaction.followup.send(
+                "❌ **Permission Denied**\n\n"
+                "You don't have the required privileges for this action.\n"
+                "Contact a game admin if you believe this is an error.",
+                ephemeral=True
+            )
+        elif response.status == 401:
+            await interaction.followup.send(
+                "❌ **Authentication Failed**\n\n"
+                "Your session may have expired. Try running the command again.",
+                ephemeral=True
+            )
+        elif response.status == 404:
+            await interaction.followup.send(
+                f"❌ **Not Found**\n\nThe requested resource was not found.",
+                ephemeral=True
+            )
+        else:
+            text = await response.text()
+            await interaction.followup.send(
+                f"❌ Failed to {action}: HTTP {response.status}\n```{text}```",
+                ephemeral=True
+            )
     
     # =============================================
     # Game Session Commands
@@ -82,7 +136,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
         phase1_duration="Phase 1 (actions) duration in minutes",
         phase2_duration="Phase 2 (reactions) duration in minutes"
     )
-    @app_commands.default_permissions(administrator=True)
+    @requires_linked_account
     async def create_session(
         self,
         interaction: discord.Interaction,
@@ -95,6 +149,8 @@ class AdminCommands(commands.Cog, name="admin_commands"):
     ) -> None:
         """
         Create a new game session.
+        
+        Requires linked account with admin privileges.
         
         Args:
             interaction: Discord interaction
@@ -111,18 +167,12 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             await interaction.followup.send("❌ HTTP session not initialized", ephemeral=True)
             return
         
-        if not self.admin_token:
-            await interaction.followup.send(
-                "❌ Admin token not configured. Set `DISCORD_BOT_ADMIN_TOKEN` environment variable.",
-                ephemeral=True
-            )
-            return
-        
         # Validate parameters
         if max_players < 2 or max_players > 6:
             await interaction.followup.send("❌ max_players must be between 2 and 6", ephemeral=True)
             return
         
+        player_name = interaction.extras.get('player_name', 'Unknown')
         url = f"{self.game_server_url}/admin/sessions"
         payload = {
             "session_name": name,
@@ -140,7 +190,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             async with self._http_session.post(
                 url, 
                 json=payload, 
-                headers=self._get_auth_headers()
+                headers=self._get_user_headers(interaction)
             ) as response:
                 if response.status == 201:
                     data = await response.json()
@@ -148,6 +198,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     
                     embed = discord.Embed(
                         title="✅ Game Session Created",
+                        description=f"Created by **{player_name}**",
                         color=0x00FF00
                     )
                     embed.add_field(name="Session ID", value=f"`{session_id}`", inline=False)
@@ -158,13 +209,9 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     embed.set_footer(text=f"Use /game_session-register-channel to link a channel")
                     
                     await interaction.followup.send(embed=embed, ephemeral=True)
-                    logger.info(f"Session {session_id} created by {interaction.user}")
+                    logger.info(f"Session {session_id} created by {interaction.user} ({player_name})")
                 else:
-                    text = await response.text()
-                    await interaction.followup.send(
-                        f"❌ Failed to create session: HTTP {response.status}\n```{text}```",
-                        ephemeral=True
-                    )
+                    await self._handle_error_response(interaction, response, "create session")
                     
         except aiohttp.ClientError as e:
             logger.error(f"Failed to connect to game server: {e}")
@@ -186,7 +233,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
         app_commands.Choice(name="Active", value="active"),
         app_commands.Choice(name="Completed", value="completed")
     ])
-    @app_commands.default_permissions(administrator=True)
+    @requires_linked_account
     async def list_sessions(
         self,
         interaction: discord.Interaction,
@@ -194,6 +241,8 @@ class AdminCommands(commands.Cog, name="admin_commands"):
     ) -> None:
         """
         List all game sessions.
+        
+        Requires linked account.
         
         Args:
             interaction: Discord interaction
@@ -205,12 +254,17 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             await interaction.followup.send("❌ HTTP session not initialized", ephemeral=True)
             return
         
+        player_name = interaction.extras.get('player_name', 'Unknown')
+        
         url = f"{self.game_server_url}/game/sessions"
         if status != "all":
             url += f"?status={status}"
         
         try:
-            async with self._http_session.get(url) as response:
+            async with self._http_session.get(
+                url, 
+                headers=self._get_user_headers(interaction)
+            ) as response:
                 if response.status == 200:
                     data = await response.json()
                     sessions = data.get('sessions', [])
@@ -224,7 +278,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     
                     embed = discord.Embed(
                         title="📋 Game Sessions",
-                        description=f"Found {len(sessions)} session(s)",
+                        description=f"Found {len(sessions)} session(s) • Logged in as **{player_name}**",
                         color=0x5865F2
                     )
                     
@@ -252,11 +306,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     
                     await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
-                    text = await response.text()
-                    await interaction.followup.send(
-                        f"❌ Failed to list sessions: HTTP {response.status}\n```{text}```",
-                        ephemeral=True
-                    )
+                    await self._handle_error_response(interaction, response, "list sessions")
                     
         except aiohttp.ClientError as e:
             logger.error(f"Failed to connect to game server: {e}")
@@ -272,7 +322,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
     @app_commands.describe(
         session_id="The session ID to end"
     )
-    @app_commands.default_permissions(administrator=True)
+    @requires_linked_account
     async def end_session(
         self,
         interaction: discord.Interaction,
@@ -280,6 +330,8 @@ class AdminCommands(commands.Cog, name="admin_commands"):
     ) -> None:
         """
         End a game session.
+        
+        Requires linked account with admin privileges.
         
         Args:
             interaction: Discord interaction
@@ -291,25 +343,20 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             await interaction.followup.send("❌ HTTP session not initialized", ephemeral=True)
             return
         
-        if not self.admin_token:
-            await interaction.followup.send(
-                "❌ Admin token not configured. Set `DISCORD_BOT_ADMIN_TOKEN` environment variable.",
-                ephemeral=True
-            )
-            return
-        
+        player_name = interaction.extras.get('player_name', 'Unknown')
         url = f"{self.game_server_url}/admin/sessions/{session_id}/end"
         
         try:
             async with self._http_session.post(
                 url, 
-                headers=self._get_auth_headers()
+                headers=self._get_user_headers(interaction)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
                     
                     embed = discord.Embed(
                         title="✅ Game Session Ended",
+                        description=f"Ended by **{player_name}**",
                         color=0xFF6B6B
                     )
                     embed.add_field(name="Session ID", value=f"`{session_id}`", inline=False)
@@ -317,15 +364,9 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     embed.add_field(name="Final Turn", value=str(data.get('turn_number', '?')), inline=True)
                     
                     await interaction.followup.send(embed=embed, ephemeral=True)
-                    logger.info(f"Session {session_id} ended by {interaction.user}")
-                elif response.status == 404:
-                    await interaction.followup.send(f"❌ Session `{session_id}` not found", ephemeral=True)
+                    logger.info(f"Session {session_id} ended by {interaction.user} ({player_name})")
                 else:
-                    text = await response.text()
-                    await interaction.followup.send(
-                        f"❌ Failed to end session: HTTP {response.status}\n```{text}```",
-                        ephemeral=True
-                    )
+                    await self._handle_error_response(interaction, response, "end session")
                     
         except aiohttp.ClientError as e:
             logger.error(f"Failed to connect to game server: {e}")
@@ -341,7 +382,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
     @app_commands.describe(
         session_id="The game session ID to link to this channel"
     )
-    @app_commands.default_permissions(administrator=True)
+    @requires_linked_account
     async def register_channel(
         self,
         interaction: discord.Interaction,
@@ -349,6 +390,8 @@ class AdminCommands(commands.Cog, name="admin_commands"):
     ) -> None:
         """
         Register current channel to a game session.
+        
+        Requires linked account with admin privileges.
         
         This:
         1. Binds the channel in game_server database
@@ -364,13 +407,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             await interaction.followup.send("❌ HTTP session not initialized", ephemeral=True)
             return
         
-        if not self.admin_token:
-            await interaction.followup.send(
-                "❌ Admin token not configured. Set `DISCORD_BOT_ADMIN_TOKEN` environment variable.",
-                ephemeral=True
-            )
-            return
-        
+        player_name = interaction.extras.get('player_name', 'Unknown')
         channel_id = str(interaction.channel_id)
         
         # Step 1: Bind channel in game_server
@@ -381,7 +418,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
             async with self._http_session.post(
                 url, 
                 json=payload, 
-                headers=self._get_auth_headers()
+                headers=self._get_user_headers(interaction)
             ) as response:
                 if response.status == 200:
                     # Step 2: Register in GameChat cog for message forwarding
@@ -391,6 +428,7 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     
                     embed = discord.Embed(
                         title="✅ Channel Registered",
+                        description=f"Registered by **{player_name}**",
                         color=0x00FF00
                     )
                     embed.add_field(name="Channel", value=f"<#{interaction.channel_id}>", inline=True)
@@ -402,15 +440,9 @@ class AdminCommands(commands.Cog, name="admin_commands"):
                     )
                     
                     await interaction.followup.send(embed=embed, ephemeral=True)
-                    logger.info(f"Channel {channel_id} registered to session {session_id} by {interaction.user}")
-                elif response.status == 404:
-                    await interaction.followup.send(f"❌ Session `{session_id}` not found", ephemeral=True)
+                    logger.info(f"Channel {channel_id} registered to session {session_id} by {interaction.user} ({player_name})")
                 else:
-                    text = await response.text()
-                    await interaction.followup.send(
-                        f"❌ Failed to register channel: HTTP {response.status}\n```{text}```",
-                        ephemeral=True
-                    )
+                    await self._handle_error_response(interaction, response, "register channel")
                     
         except aiohttp.ClientError as e:
             logger.error(f"Failed to connect to game server: {e}")
@@ -423,4 +455,3 @@ class AdminCommands(commands.Cog, name="admin_commands"):
 async def setup(bot: commands.Bot) -> None:
     """Load the AdminCommands cog."""
     await bot.add_cog(AdminCommands(bot))
-

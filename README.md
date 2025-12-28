@@ -156,3 +156,28 @@ https://discordpy.readthedocs.io/en/stable/discord.html
 HANDLES UNIQUE EXCEL 
 - FORMULA
 - IMAGES
+
+Section	Emoji
+📑 Table of Contents	📑
+📖 Overview	📖
+✨ Features	✨
+🏗️ Architecture	🏗️
+🔌 API Namespaces/Endpoints	🔌
+🗄️ Database Models	🗄️
+🛠️ Services	🛠️
+🔐 Authentication	🔐
+🚀 Setup	🚀
+🐳 Docker	🐳
+⚙️ Environment Variables	⚙️
+🗺️ Roadmap	🗺️
+📚 API Documentation	📚
+⚡ Slash Commands	⚡
+🧩 Cogs	🧩
+👂 Listeners	👂
+🔄 Workflows	🔄
+🤖 Agents	🤖
+💬 Prompts	💬
+🧪 Testing	🧪
+👨‍💻 Author	👨‍💻
+📄 License	📄
+🙏 Acknowledgments	🙏
