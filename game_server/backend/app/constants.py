@@ -8,6 +8,22 @@ from enum import Enum, IntEnum
 
 
 # =============================================
+# IMPORTANT: Enum Naming Convention for PostgreSQL
+# =============================================
+# SQLAlchemy's postgresql.ENUM uses the Python enum MEMBER NAMES
+# (uppercase, e.g., PHASE1_ACTIONS) for PostgreSQL storage.
+# The .value attribute (lowercase, e.g., 'phase1_actions') is used
+# for API serialization only.
+#
+# When writing SQL migrations to add new enum values:
+#   CORRECT:   ALTER TYPE game_phase_enum ADD VALUE 'NEW_MEMBER';
+#   INCORRECT: ALTER TYPE game_phase_enum ADD VALUE 'new_member';
+#
+# The database stores the MEMBER NAME, not the .value!
+# =============================================
+
+
+# =============================================
 # Card and Player Enums (Existing)
 # =============================================
 
@@ -103,12 +119,17 @@ class SessionStatus(str, Enum):
 
 
 class GamePhase(str, Enum):
-    """Phases within an hourly turn."""
+    """Phases within an hourly turn.
+    
+    Note: ENDING is a terminal phase, not part of the regular turn cycle.
+    It occurs after the game ends to allow rematch requests.
+    """
     PHASE1_ACTIONS = 'phase1_actions'
     LOCKOUT1 = 'lockout1'
     PHASE2_REACTIONS = 'phase2_reactions'
     LOCKOUT2 = 'lockout2'
     BROADCAST = 'broadcast'
+    ENDING = 'ending'  # Terminal phase - NOT in PHASE_ORDER
 
 
 class ReactionType(str, Enum):
@@ -139,6 +160,7 @@ PHASE_DURATIONS_MINUTES = {
     GamePhase.PHASE2_REACTIONS: 20,
     GamePhase.LOCKOUT2: 10,
     GamePhase.BROADCAST: 1,
+    GamePhase.ENDING: 5,  # Terminal phase - rematch window duration
 }
 
 PHASE_ORDER = [

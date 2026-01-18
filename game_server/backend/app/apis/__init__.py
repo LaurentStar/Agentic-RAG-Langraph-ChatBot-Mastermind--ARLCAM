@@ -8,6 +8,7 @@ Organized into domains:
 - game/    - Gameplay (actions, reactions, state, sessions)
 - players/ - Player self-service (registration, profile)
 - system/  - Infrastructure (health checks)
+- ops/     - Developer operations (debugging, monitoring)
 """
 
 # Auth
@@ -27,6 +28,9 @@ from app.apis.players import player_ns
 
 # System
 from app.apis.system import health_ns
+
+# Ops (Developer)
+from app.apis.ops import status_ns, jobs_ns, connections_ns
 
 __all__ = [
     # Auth
@@ -49,5 +53,9 @@ __all__ = [
     "player_ns",
     # System
     "health_ns",
+    # Ops
+    "status_ns",
+    "jobs_ns",
+    "connections_ns",
 ]
 

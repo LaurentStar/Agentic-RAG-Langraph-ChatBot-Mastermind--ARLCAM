@@ -23,7 +23,8 @@ def _player_to_dict(player):
     return {
         'display_name': player.display_name,
         'social_media_platform_display_name': player.social_media_platform_display_name,
-        'social_media_platform': player.social_media_platform.value if player.social_media_platform else None,
+        'social_media_platforms': [p.value for p in (player.social_media_platforms or [])],
+        'preferred_social_media_platform': player.preferred_social_media_platform.value if player.preferred_social_media_platform else None,
         'player_type': player.player_type.value if player.player_type else None,
         'session_id': player.session_id,
         'coins': player.coins,
@@ -78,13 +79,13 @@ class LLMAgentRegister(Resource):
         data = request.get_json()
         
         try:
-            platform = SocialMediaPlatform(data.get('social_media_platform', 'default'))
+            platform = SocialMediaPlatform(data.get('platform', 'default'))
             
             player = PlayerService.register_llm_agent(
                 display_name=data['display_name'],
                 password=data['password'],
                 social_media_platform_display_name=data.get('social_media_platform_display_name', data['display_name']),
-                social_media_platform=platform,
+                platform=platform,
                 personality_type=data.get('personality_type', 'balanced'),
                 modulators=data.get('modulators')
             )
@@ -110,14 +111,14 @@ class AdminRegister(Resource):
         data = request.get_json()
         
         try:
-            platform = SocialMediaPlatform(data.get('social_media_platform', 'default'))
+            platform = SocialMediaPlatform(data.get('platform', 'default'))
             privileges = [GamePrivilege(p) for p in data.get('game_privileges', [])]
             
             player = PlayerService.register_player(
                 display_name=data['display_name'],
                 password=data['password'],
                 social_media_platform_display_name=data.get('social_media_platform_display_name', data['display_name']),
-                social_media_platform=platform,
+                platform=platform,
                 player_type=PlayerType.ADMIN,
                 game_privileges=privileges
             )
@@ -149,8 +150,8 @@ class AdminPlayerResource(Resource):
                 data['game_privileges'] = [GamePrivilege(p) for p in data['game_privileges']]
             
             # Parse platform if provided
-            if 'social_media_platform' in data:
-                data['social_media_platform'] = SocialMediaPlatform(data['social_media_platform'])
+            if 'preferred_social_media_platform' in data:
+                data['preferred_social_media_platform'] = SocialMediaPlatform(data['preferred_social_media_platform'])
             
             player = PlayerService.update_player(display_name, **data)
             return _player_to_dict(player), 200

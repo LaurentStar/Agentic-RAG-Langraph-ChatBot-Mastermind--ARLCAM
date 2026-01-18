@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 oauth_ns = Namespace('oauth', description='OAuth2 authentication')
 
+# =============================================
+# API Models
+# =============================================
+from app.models.rest_api_models.auth_models import create_oauth_models
+
+oauth_models = create_oauth_models(oauth_ns)
+
 
 def run_async(coro):
     """Run async function in sync context."""
@@ -289,29 +296,16 @@ class SlackCallback(Resource):
 class TokenByProvider(Resource):
     """Get JWT token for a linked OAuth account."""
     
-    @oauth_ns.doc(
-        responses={
-            200: 'Success - returns JWT tokens',
-            400: 'Bad request - missing parameters',
-            404: 'Account not linked'
-        },
-        params={
-            'provider': 'OAuth provider (discord, google, slack)',
-            'provider_user_id': 'User ID from the provider'
-        }
-    )
+    @oauth_ns.expect(oauth_models['token_by_provider_request'])
+    @oauth_ns.response(200, 'Success', oauth_models['token_by_provider_response'])
+    @oauth_ns.response(400, 'Bad request - missing parameters')
+    @oauth_ns.response(404, 'Account not linked')
     def post(self):
         """
         Get JWT tokens for a user who has already linked their account.
         
         Used by Discord/Slack bots to get tokens for users who have
         previously completed the OAuth flow.
-        
-        Request body:
-        {
-            "provider": "discord",
-            "provider_user_id": "123456789012345678"
-        }
         
         Returns JWT access and refresh tokens if account is linked.
         Returns 404 if no linked account found.

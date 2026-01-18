@@ -2,7 +2,8 @@
 Chat Broadcast Service.
 
 Handles pushing chat messages to registered bot endpoints.
-Called by APScheduler every 5 minutes per session.
+This service contains ONLY the broadcast BUSINESS LOGIC.
+Scheduling is handled by ChatBroadcastJob in app/jobs/.
 """
 
 from datetime import datetime
@@ -14,10 +15,12 @@ from app.services.chat_service import ChatService
 
 
 class ChatBroadcastService:
-    """Service for broadcasting chat messages to platform bots."""
+    """
+    Service for broadcasting chat messages to platform bots.
     
-    # Default broadcast interval in minutes
-    DEFAULT_INTERVAL_MINUTES = 5
+    This service handles ONLY the business logic of broadcasting messages.
+    Scheduling is handled by ChatBroadcastJob in app/jobs/.
+    """
     
     @staticmethod
     def broadcast_chat(session_id: str) -> Dict[str, Any]:
@@ -135,85 +138,6 @@ class ChatBroadcastService:
             return False, "Request timeout"
         except Exception as e:
             return False, str(e)
-    
-    @staticmethod
-    def schedule_broadcast(session_id: str, interval_minutes: int = None) -> str:
-        """
-        Schedule recurring broadcast job for a session.
-        
-        Args:
-            session_id: Game session ID
-            interval_minutes: Broadcast interval (default: 5)
-        
-        Returns:
-            Job ID
-        """
-        from app import scheduler
-        
-        if interval_minutes is None:
-            interval_minutes = ChatBroadcastService.DEFAULT_INTERVAL_MINUTES
-        
-        job_id = f"chat_broadcast_{session_id}"
-        
-        # Remove existing job if any
-        existing_job = scheduler.get_job(job_id)
-        if existing_job:
-            scheduler.remove_job(job_id)
-        
-        # Schedule new job
-        scheduler.add_job(
-            id=job_id,
-            func=ChatBroadcastService._scheduled_broadcast,
-            args=[session_id],
-            trigger='interval',
-            minutes=interval_minutes,
-            misfire_grace_time=60
-        )
-        
-        return job_id
-    
-    @staticmethod
-    def _scheduled_broadcast(session_id: str) -> None:
-        """
-        Wrapper for scheduled broadcast (runs in app context).
-        
-        Called by APScheduler.
-        """
-        from flask import current_app
-        
-        with current_app.app_context():
-            result = ChatBroadcastService.broadcast_chat(session_id)
-            
-            # Log results
-            if result["message_count"] > 0:
-                success_count = sum(1 for r in result["results"] if r["success"])
-                print(
-                    f"[CHAT BROADCAST] Session {session_id}: "
-                    f"Sent {result['message_count']} messages to "
-                    f"{success_count}/{result['endpoint_count']} endpoints"
-                )
-    
-    @staticmethod
-    def cancel_broadcast(session_id: str) -> bool:
-        """
-        Cancel scheduled broadcast job for a session.
-        
-        Args:
-            session_id: Game session ID
-        
-        Returns:
-            True if cancelled, False if not found
-        """
-        from app import scheduler
-        
-        job_id = f"chat_broadcast_{session_id}"
-        existing_job = scheduler.get_job(job_id)
-        
-        if existing_job:
-            scheduler.remove_job(job_id)
-            return True
-        
-        return False
     
     @staticmethod
     def trigger_immediate_broadcast(session_id: str) -> Dict[str, Any]:

@@ -1,22 +1,91 @@
 """
 Logging Service.
 
-Handles database logging of commands, messages, and errors using SQLAlchemy.
+Handles database logging of commands, messages, and errors.
+
+Uses a standalone SQLAlchemy engine to work outside Flask's application context.
+This is necessary because Discord.py's event loop runs independently of Flask.
 """
 
+import os
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, JSON
+from sqlalchemy.orm import sessionmaker, declarative_base
+
 from app.constants import LogType
-from app.extensions import db
-from app.database.db_models import DiscordBotLog
 
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# STANDALONE DATABASE CONNECTION
+# ============================================================================
+# This engine is independent of Flask-SQLAlchemy and can be used from any thread
+# or async context without requiring Flask's application context.
+
+_DATABASE_URL = os.getenv("SQLALCHEMY_DATABASE_URI")
+_engine = None
+_SessionLocal = None
+_StandaloneBase = declarative_base()
+
+
+class _StandaloneDiscordBotLog(_StandaloneBase):
+    """Standalone ORM model for discord_bot_log table (mirrors db_models.DiscordBotLog)."""
+    __tablename__ = 'discord_bot_log'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    log_type = Column(String(20), nullable=False, index=True)
+    guild_id = Column(String(30), nullable=True, index=True)
+    channel_id = Column(String(30), nullable=True)
+    user_id = Column(String(30), nullable=True, index=True)
+    user_name = Column(String(100), nullable=True)
+    content = Column(Text, nullable=True)
+    extra_data = Column(JSON, nullable=True)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        index=True
+    )
+
+
+def _get_session():
+    """
+    Get a standalone database session.
+    
+    Lazily initializes the engine on first use.
+    Returns None if DATABASE_URL is not configured.
+    """
+    global _engine, _SessionLocal
+    
+    if not _DATABASE_URL:
+        return None
+    
+    if _engine is None:
+        _engine = create_engine(
+            _DATABASE_URL,
+            pool_size=5,
+            pool_recycle=300,
+            pool_pre_ping=True
+        )
+        _SessionLocal = sessionmaker(bind=_engine)
+        logger.debug("Standalone database engine initialized for LoggingService")
+    
+    return _SessionLocal()
+
+
+# ============================================================================
+# LOGGING SERVICE
+# ============================================================================
+
 class LoggingService:
     """
     Service for logging Discord bot events to PostgreSQL.
+    
+    Uses a standalone database connection that works outside Flask's app context.
+    This is essential for logging from Discord.py's event loop.
     
     Logs are stored in the discord_bot_log table and include:
     - Command executions
@@ -41,23 +110,32 @@ class LoggingService:
         Returns:
             Log entry ID or None on failure
         """
+        session = _get_session()
+        if session is None:
+            logger.debug("Database not configured - skipping log entry")
+            return None
+        
         try:
-            log_entry = DiscordBotLog(
+            log_entry = _StandaloneDiscordBotLog(
                 log_type=log_type.value,
                 guild_id=str(guild_id) if guild_id else None,
                 channel_id=str(channel_id) if channel_id else None,
                 user_id=str(user_id) if user_id else None,
                 user_name=user_name,
                 content=content[:2000] if content else None,
-                extra_data=metadata
+                extra_data=metadata,
+                created_at=datetime.now(timezone.utc)
             )
-            db.session.add(log_entry)
-            db.session.commit()
-            return log_entry.id
+            session.add(log_entry)
+            session.commit()
+            log_id = log_entry.id
+            return log_id
         except Exception as e:
             logger.error(f"Failed to create log entry: {e}")
-            db.session.rollback()
+            session.rollback()
             return None
+        finally:
+            session.close()
     
     @staticmethod
     def log_command(

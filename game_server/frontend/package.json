@@ -1,0 +1,38 @@
+{
+  "name": "coup-game-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "local": "env-cmd -f .env.local next dev -p 4001",
+    "dev": "env-cmd -f .env.development next dev -p 4001",
+    "qa": "env-cmd -f .env.qa next dev -p 4001",
+    "prod": "env-cmd -f .env.production next build && next start -p 4001",
+    "build": "next build",
+    "start": "next start -p 4001",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.17.0",
+    "framer-motion": "^10.18.0",
+    "loglevel": "^1.9.1",
+    "lottie-react": "^2.4.0",
+    "next": "14.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "use-sound": "^4.0.1",
+    "zod": "^3.22.4",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.17",
+    "env-cmd": "^10.1.0",
+    "eslint": "^8.56.0",
+    "eslint-config-next": "14.1.0",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3"
+  }
+}

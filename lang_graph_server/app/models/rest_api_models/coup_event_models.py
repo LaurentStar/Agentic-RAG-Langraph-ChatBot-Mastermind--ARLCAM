@@ -102,6 +102,52 @@ def register_coup_event_models(namespace):
         'games': fields.Raw(description='Per-game statistics'),
     })
 
+    # =============================================
+    # Agent Registration Models
+    # =============================================
+    
+    # Single agent configuration for registration
+    agent_config_model = namespace.model('AgentConfig', {
+        'agent_id': fields.String(required=True, description='Agent display name/identifier'),
+        'play_style': fields.String(default='balanced', description='Agent play style (aggressive, passive, balanced, etc.)'),
+        'personality': fields.String(default='friendly', description='Agent personality trait'),
+        'coins': fields.Integer(default=2, description='Starting coins'),
+        'players_alive': fields.List(fields.String, description='List of all players in the game'),
+    })
+    
+    # Request to register agents
+    register_agents_request_model = namespace.model('RegisterAgentsRequest', {
+        'agents': fields.List(
+            fields.Nested(agent_config_model),
+            required=True,
+            description='List of agents to register'
+        ),
+    })
+    
+    # Single agent registration result
+    agent_registration_result_model = namespace.model('AgentRegistrationResult', {
+        'agent_id': fields.String(description='Agent identifier'),
+        'success': fields.Boolean(description='Whether registration succeeded'),
+        'error': fields.String(description='Error message if failed'),
+    })
+    
+    # Response from agent registration
+    register_agents_response_model = namespace.model('RegisterAgentsResponse', {
+        'game_id': fields.String(description='Game identifier'),
+        'agents_registered': fields.Integer(description='Number of agents successfully registered'),
+        'agents': fields.List(
+            fields.Nested(agent_registration_result_model),
+            description='Registration results for each agent'
+        ),
+    })
+    
+    # Response from agent cleanup
+    cleanup_agents_response_model = namespace.model('CleanupAgentsResponse', {
+        'game_id': fields.String(description='Game identifier'),
+        'agents_removed': fields.Integer(description='Number of agents removed'),
+        'success': fields.Boolean(description='Whether cleanup succeeded'),
+    })
+
     return {
         'incoming_event': incoming_event_model,
         'event_response': event_response_model,
@@ -110,5 +156,11 @@ def register_coup_event_models(namespace):
         'game_agents': game_agents_model,
         'agent_stats': agent_stats_model,
         'registry_stats': registry_stats_model,
+        # Registration models
+        'agent_config': agent_config_model,
+        'register_agents_request': register_agents_request_model,
+        'agent_registration_result': agent_registration_result_model,
+        'register_agents_response': register_agents_response_model,
+        'cleanup_agents_response': cleanup_agents_response_model,
     }
 

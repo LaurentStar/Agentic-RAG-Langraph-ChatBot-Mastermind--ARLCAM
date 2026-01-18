@@ -10,6 +10,7 @@ This service:
 4. Returns formatted response
 """
 
+import logging
 from typing import Dict, Optional, Any
 
 from app.agents.base_coup_agent import BaseCoupAgent
@@ -21,6 +22,8 @@ from app.models.graph_state_models.chat_reasoning_state import (
     create_chat_reasoning_state,
 )
 from app.services.message_counter_service import MessageCounterService
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -47,6 +50,13 @@ class ChatService:
         sender_id = event.get("sender_id", "unknown")
         sender_is_llm = event.get("sender_is_llm", False)
         source_platform = SocialMediaPlatform(event.get("source_platform", "defualt"))
+        content = payload.get("content", "")
+        
+        logger.info(
+            f"[CHAT-FLOW] ChatService.process_chat_message: "
+            f"agent={agent.agent_id} sender={sender_id} "
+            f"content=\"{content[:50]}...\""
+        )
         
         # Determine target type
         if sender_is_llm:
@@ -55,12 +65,22 @@ class ChatService:
             target_type = MessageTargetType.HUMAN_ONLY
         
         # Check message limit first
-        if not agent.can_send_message(target_type):
+        can_send = agent.can_send_message(target_type)
+        stats = agent.get_message_stats()
+        logger.debug(
+            f"[CHAT-FLOW] Message limit check: can_send={can_send} "
+            f"target_type={target_type.value} stats={stats}"
+        )
+        
+        if not can_send:
+            logger.warning(
+                f"[CHAT-FLOW] Agent {agent.agent_id} hit message limit: {stats}"
+            )
             return {
                 "action": "limit_reached",
                 "responded": False,
                 "message": f"Message limit reached for {target_type.value}",
-                "stats": agent.get_message_stats(),
+                "stats": stats,
             }
         
         # Build incoming message
@@ -68,7 +88,7 @@ class ChatService:
             sender_id=sender_id,
             sender_is_llm=sender_is_llm,
             platform=source_platform,
-            content=payload.get("content", ""),
+            content=content,
             timestamp=event.get("timestamp"),
             game_id=agent.game_id,
         )
@@ -86,13 +106,29 @@ class ChatService:
             recent_history=recent_history,
         )
         
+        logger.debug(
+            f"[CHAT-FLOW] Workflow state created: "
+            f"can_respond={workflow_state.get('can_respond')} "
+            f"messages_remaining={workflow_state.get('messages_remaining')}"
+        )
+        
         # Run workflow
         workflow = lang_graph_app.chat_reasoning_wf
         thread_id = f"{agent.game_id}_{agent.agent_id}"
         
         try:
+            logger.info(f"[CHAT-FLOW] Running ChatReasoningWorkflow for agent={agent.agent_id}")
             result = workflow.run(workflow_state, thread_id=thread_id)
+            logger.info(
+                f"[CHAT-FLOW] Workflow complete: agent={agent.agent_id} "
+                f"should_respond={result.get('response_decision', {}).get('should_respond')} "
+                f"final_response=\"{str(result.get('final_response', ''))[:50]}...\""
+            )
         except Exception as e:
+            logger.error(
+                f"[CHAT-FLOW] Workflow error: agent={agent.agent_id} error={e}",
+                exc_info=True
+            )
             return {
                 "action": "workflow_error",
                 "responded": False,
@@ -116,6 +152,13 @@ class ChatService:
         final_response = result.get("final_response")
         action_update = result.get("action_update_decision", {})
         
+        logger.debug(
+            f"[CHAT-FLOW] _process_workflow_result: agent={agent.agent_id} "
+            f"response_decision={response_decision} "
+            f"has_generated_response={generated_response is not None} "
+            f"has_final_response={final_response is not None}"
+        )
+        
         # Add incoming message to chat history
         chat_history = agent.state.get("chat_history", [])
         chat_history.append(incoming_message)
@@ -123,6 +166,10 @@ class ChatService:
         
         # If we generated a response, increment counter and add to history
         if final_response and response_decision.get("should_respond"):
+            logger.info(
+                f"[CHAT-FLOW] Agent {agent.agent_id} responding: "
+                f"\"{final_response[:100]}...\""
+            )
             # Increment message counter
             success = agent.increment_message_count(target_type)
             
@@ -136,9 +183,24 @@ class ChatService:
                     game_id=agent.game_id,
                 )
                 agent.state["chat_history"].append(our_response)
+                logger.info(f"[CHAT-FLOW] Response added to agent history")
             else:
                 # Counter increment failed (race condition)
+                logger.warning(
+                    f"[CHAT-FLOW] Counter increment failed for agent {agent.agent_id} - dropping response"
+                )
                 final_response = None
+        elif response_decision.get("should_respond") and not final_response:
+            logger.warning(
+                f"[CHAT-FLOW] Agent {agent.agent_id} decided to respond but final_response is empty! "
+                f"generated_response={generated_response}"
+            )
+        else:
+            logger.info(
+                f"[CHAT-FLOW] Agent {agent.agent_id} not responding: "
+                f"reason=\"{response_decision.get('reason', 'no reason')}\" "
+                f"skip_reason={response_decision.get('skip_reason')}"
+            )
         
         # Handle action update if needed
         action_updated = False
@@ -154,6 +216,9 @@ class ChatService:
                     upgrade_type=action_update.get("new_upgrade_type"),
                 )
                 action_updated = True
+                logger.info(
+                    f"[CHAT-FLOW] Agent {agent.agent_id} updated action: {new_action} -> {new_target}"
+                )
         
         # Build response
         return {

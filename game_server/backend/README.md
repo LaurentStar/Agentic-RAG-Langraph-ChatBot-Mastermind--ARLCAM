@@ -540,6 +540,8 @@ docker compose up -d --build
 | `GOOGLE_CLIENT_ID` | For OAuth | - | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | For OAuth | - | Google OAuth client secret |
 | `GOOGLE_REDIRECT_URI` | For OAuth | - | Google OAuth callback URL |
+| `SERVICE_API_KEY` | For bots | `dev-service-key` | API key for service-to-service auth |
+| `OPS_API_KEY` | For devs | `dev-ops-key` | API key for developer operations endpoints |
 | `SLACK_BOT_LOCAL_URL` | Local only | `http://localhost:3002` | Slack bot URL for proxy |
 | `NGROK_AUTH_TOKEN` | Local only | - | Ngrok authentication token |
 | `NGROK_DEV_DOMAIN` | Local only | - | Ngrok static domain |

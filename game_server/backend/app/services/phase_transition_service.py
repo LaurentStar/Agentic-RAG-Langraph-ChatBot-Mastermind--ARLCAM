@@ -1,7 +1,8 @@
 """
 Phase Transition Service.
 
-Handles automatic phase cycling using APScheduler.
+Handles game phase transition BUSINESS LOGIC only.
+Scheduling is handled by PhaseTransitionJob in app/jobs/.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -17,69 +18,12 @@ from app.models.postgres_sql_db_models import GameSession
 
 
 class PhaseTransitionService:
-    """Service for managing game phase transitions."""
+    """
+    Service for managing game phase transitions.
     
-    def __init__(self, scheduler=None):
-        """Initialize with optional scheduler instance."""
-        self._scheduler = scheduler
-    
-    @property
-    def scheduler(self):
-        """Get scheduler, importing from app if not set."""
-        if self._scheduler is None:
-            from app import scheduler as app_scheduler
-            self._scheduler = app_scheduler
-        return self._scheduler
-    
-    def schedule_next_transition(self, session_id: str, app=None) -> Optional[str]:
-        """
-        Schedule the next phase transition for a session.
-        
-        Args:
-            session_id: Session to schedule transition for
-            app: Flask app for context (optional, uses current_app if not provided)
-        
-        Returns:
-            Job ID if scheduled, None if session not found/inactive
-        """
-        session = GameSession.query.filter_by(session_id=session_id).first()
-        
-        if not session or not session.is_game_started:
-            return None
-        
-        if session.status != SessionStatus.ACTIVE:
-            return None
-        
-        # Calculate next transition time using session-specific duration
-        duration = session.get_phase_duration(session.current_phase)
-        run_time = datetime.now(timezone.utc) + timedelta(minutes=duration)
-        
-        job_id = f"phase_transition_{session_id}"
-        
-        # Remove existing job if any
-        existing_job = self.scheduler.get_job(job_id)
-        if existing_job:
-            self.scheduler.remove_job(job_id)
-        
-        # Schedule new job
-        self.scheduler.add_job(
-            id=job_id,
-            func=self._execute_transition,
-            args=[session_id],
-            trigger='date',
-            run_date=run_time,
-            misfire_grace_time=60
-        )
-        
-        return job_id
-    
-    def _execute_transition(self, session_id: str):
-        """Execute a phase transition (called by scheduler)."""
-        from flask import current_app
-        
-        # Need app context for database access
-        with current_app.app_context():
-            self.transition_to_next_phase(session_id)
+    This service handles ONLY the business logic of transitioning phases.
+    Scheduling is handled by PhaseTransitionJob in app/jobs/.
+    """
     
     def transition_to_next_phase(self, session_id: str) -> Optional[GameSession]:
         """
@@ -105,6 +49,8 @@ class PhaseTransitionService:
         next_phase = PHASE_ORDER[next_index]
         
         # Execute phase-specific logic
+        should_end_game = False
+        
         if current_phase == GamePhase.PHASE1_ACTIONS:
             self._on_lockout1_start(session)
         elif current_phase == GamePhase.LOCKOUT1:
@@ -114,28 +60,32 @@ class PhaseTransitionService:
         elif current_phase == GamePhase.LOCKOUT2:
             self._on_broadcast_start(session)
         elif current_phase == GamePhase.BROADCAST:
-            self._on_new_turn_start(session)
+            should_end_game = self._on_new_turn_start(session)
         
-        # Update phase
+        # Check for turn limit (if transitioning to a new turn)
+        if next_phase == GamePhase.PHASE1_ACTIONS and current_index > 0:
+            session.turn_number += 1
+            
+            if session.turn_limit > 0 and session.turn_number > session.turn_limit:
+                should_end_game = True
+        
+        # If game should end, transition to ENDING phase instead of next phase
+        if should_end_game:
+            from app.services.session_service import SessionService
+            
+            # Commit any player changes before transitioning
+            db.session.commit()
+            
+            # Transition to ENDING phase
+            return SessionService.transition_to_ending(session.session_id)
+        
+        # Normal phase transition
         session.current_phase = next_phase
         session.phase_end_time = datetime.now(timezone.utc) + timedelta(
             minutes=session.get_phase_duration(next_phase)
         )
         
-        # Check for turn limit
-        if next_phase == GamePhase.PHASE1_ACTIONS and current_index > 0:
-            session.turn_number += 1
-            
-            if session.turn_limit > 0 and session.turn_number > session.turn_limit:
-                session.status = SessionStatus.COMPLETED
-                session.is_game_started = False
-                db.session.commit()
-                return session
-        
         db.session.commit()
-        
-        # Schedule next transition
-        self.schedule_next_transition(session_id)
         
         return session
     
@@ -241,11 +191,14 @@ class PhaseTransitionService:
         else:
             print(f"[BROADCAST] Session {session.session_id}: No turn result found")
     
-    def _on_new_turn_start(self, session: GameSession):
+    def _on_new_turn_start(self, session: GameSession) -> bool:
         """
         Called when a new turn begins (PHASE1 after BROADCAST).
         
         Reset player pending actions, check for game end.
+        
+        Returns:
+            True if game should end (transition to ENDING), False to continue
         """
         from app.models.postgres_sql_db_models import Player
         
@@ -258,29 +211,10 @@ class PhaseTransitionService:
         # Check for winner (only one player alive)
         alive_count = sum(1 for p in players if p.is_alive)
         if alive_count <= 1:
-            session.status = SessionStatus.COMPLETED
-            session.is_game_started = False
-    
-    def cancel_scheduled_transition(self, session_id: str) -> bool:
-        """
-        Cancel a scheduled phase transition.
-        
-        Args:
-            session_id: Session to cancel transition for
-        
-        Returns:
-            True if job was cancelled, False if not found
-        """
-        job_id = f"phase_transition_{session_id}"
-        existing_job = self.scheduler.get_job(job_id)
-        
-        if existing_job:
-            self.scheduler.remove_job(job_id)
-            return True
+            return True  # Signal to transition to ENDING phase
         
         return False
-
-
+    
 # Singleton instance
 phase_transition_service = PhaseTransitionService()
 

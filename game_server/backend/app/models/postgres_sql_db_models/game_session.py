@@ -40,11 +40,20 @@ class GameSession(db.Model):
     upgrades_enabled: Mapped[bool] = mapped_column(default=True)
     
     # ---------------------- Phase Durations (minutes) ---------------------- #
-    phase1_duration: Mapped[int] = mapped_column(default=50)      # Discussion & action selection
-    lockout1_duration: Mapped[int] = mapped_column(default=10)    # Server processes actions
-    phase2_duration: Mapped[int] = mapped_column(default=20)      # Reactions (challenge/block)
-    lockout2_duration: Mapped[int] = mapped_column(default=10)    # Server resolves outcomes
-    broadcast_duration: Mapped[int] = mapped_column(default=1)    # Results announcement
+    # Column names match migration: phase{N}_{name}_duration for clarity
+    phase1_action_duration: Mapped[int] = mapped_column(default=50)      # Discussion & action selection
+    phase2_lockout_duration: Mapped[int] = mapped_column(default=10)     # Server processes actions
+    phase3_reaction_duration: Mapped[int] = mapped_column(default=20)    # Reactions (challenge/block)
+    phase4_lockout_duration: Mapped[int] = mapped_column(default=10)     # Server resolves outcomes
+    phase5_broadcast_duration: Mapped[int] = mapped_column(default=1)    # Results announcement
+    phase6_ending_duration: Mapped[int] = mapped_column(default=5)       # Rematch window
+    
+    # ---------------------- Rematch Tracking ---------------------- #
+    rematch_count: Mapped[int] = mapped_column(default=0)  # Max 3 rematches allowed
+    winners: Mapped[List[str]] = mapped_column(
+        postgresql.ARRAY(String),
+        default=[]
+    )  # Winner display names
     
     # ---------------------- Status ---------------------- #
     is_game_started: Mapped[bool] = mapped_column(default=False)
@@ -107,11 +116,12 @@ class GameSession(db.Model):
             Duration in minutes
         """
         phase_durations = {
-            GamePhase.PHASE1_ACTIONS: self.phase1_duration,
-            GamePhase.LOCKOUT1: self.lockout1_duration,
-            GamePhase.PHASE2_REACTIONS: self.phase2_duration,
-            GamePhase.LOCKOUT2: self.lockout2_duration,
-            GamePhase.BROADCAST: self.broadcast_duration,
+            GamePhase.PHASE1_ACTIONS: self.phase1_action_duration,
+            GamePhase.LOCKOUT1: self.phase2_lockout_duration,
+            GamePhase.PHASE2_REACTIONS: self.phase3_reaction_duration,
+            GamePhase.LOCKOUT2: self.phase4_lockout_duration,
+            GamePhase.BROADCAST: self.phase5_broadcast_duration,
+            GamePhase.ENDING: self.phase6_ending_duration,
         }
         return phase_durations.get(phase, 10)  # Default 10 if unknown
 

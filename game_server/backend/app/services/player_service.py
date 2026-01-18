@@ -6,7 +6,7 @@ Handles player registration, retrieval, and management.
 
 from typing import List, Optional
 
-from app.constants import GamePrivilege, PlayerStatus, PlayerType
+from app.constants import GamePrivilege, PlayerStatus, PlayerType, SocialMediaPlatform
 from app.extensions import db
 from app.models.postgres_sql_db_models import AgentProfile, Player
 from app.services.auth_service import AuthService
@@ -20,7 +20,7 @@ class PlayerService:
         display_name: str,
         password: str,
         social_media_platform_display_name: str,
-        social_media_platform: str,
+        platform: SocialMediaPlatform,
         player_type: PlayerType = PlayerType.HUMAN,
         game_privileges: Optional[List[GamePrivilege]] = None
     ) -> Player:
@@ -31,7 +31,7 @@ class PlayerService:
             display_name: Unique player identifier
             password: Plain text password (will be hashed)
             social_media_platform_display_name: Username on platform
-            social_media_platform: Platform enum value
+            platform: Platform enum value (added to platforms list and set as preferred)
             player_type: Type of player (human, llm_agent, admin)
             game_privileges: List of privileges for non-admin players
         
@@ -46,12 +46,13 @@ class PlayerService:
         if existing:
             raise ValueError(f"Player '{display_name}' already exists")
         
-        # Create player
+        # Create player with platform loyalty fields
         player = Player(
             display_name=display_name,
             password_hash=AuthService.hash_password(password),
             social_media_platform_display_name=social_media_platform_display_name,
-            social_media_platform=social_media_platform,
+            social_media_platforms=[platform],
+            preferred_social_media_platform=platform,
             player_type=player_type,
             game_privileges=game_privileges or [],
             player_statuses=[PlayerStatus.WAITING],
@@ -70,7 +71,7 @@ class PlayerService:
         display_name: str,
         password: str,
         social_media_platform_display_name: str,
-        social_media_platform: str,
+        platform: SocialMediaPlatform,
         personality_type: str = "balanced",
         modulators: Optional[dict] = None
     ) -> Player:
@@ -81,7 +82,7 @@ class PlayerService:
             display_name: Unique agent identifier
             password: API key or password for agent authentication
             social_media_platform_display_name: Bot username on platform
-            social_media_platform: Platform enum value
+            platform: Platform enum value
             personality_type: Agent personality style
             modulators: Dict of modulator values (aggression, bluff_confidence, etc.)
         
@@ -93,7 +94,7 @@ class PlayerService:
             display_name=display_name,
             password=password,
             social_media_platform_display_name=social_media_platform_display_name,
-            social_media_platform=social_media_platform,
+            platform=platform,
             player_type=PlayerType.LLM_AGENT
         )
         
@@ -199,13 +200,19 @@ class PlayerService:
         
         allowed_fields = {
             'social_media_platform_display_name',
-            'social_media_platform',
+            'preferred_social_media_platform',
             'game_privileges'
         }
         
         for field, value in updates.items():
             if field in allowed_fields:
                 setattr(player, field, value)
+            # Add new platform to list if setting preferred
+            elif field == 'preferred_social_media_platform' and value:
+                platforms = list(player.social_media_platforms or [])
+                if value not in platforms:
+                    platforms.append(value)
+                    player.social_media_platforms = platforms
         
         db.session.commit()
         return player

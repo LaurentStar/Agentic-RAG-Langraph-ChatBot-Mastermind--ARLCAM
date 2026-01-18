@@ -18,6 +18,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from app.services.logging_service import LoggingService
+
 logger = logging.getLogger("discord_bot")
 
 
@@ -187,14 +189,40 @@ class GameChat(commands.Cog, name="game_chat"):
         if not message.content.strip():
             return
         
+        # Log the message flow
+        content_preview = message.content[:50] + "..." if len(message.content) > 50 else message.content
+        logger.info(
+            f"[CHAT-FLOW] Discord → GameServer: session={session_id} "
+            f"sender={message.author.display_name} content=\"{content_preview}\""
+        )
+        
         # Forward to game server
-        await self._send_to_game_server(
+        success = await self._send_to_game_server(
             session_id=session_id,
             sender=message.author.display_name,
-            content=message.content
+            content=message.content,
+            message=message  # Pass message for DB logging
         )
+        
+        # Log to database
+        if message.guild:
+            LoggingService.log_message(
+                guild_id=str(message.guild.id),
+                channel_id=str(message.channel.id),
+                user_id=str(message.author.id),
+                user_name=message.author.display_name,
+                content=message.content,
+                session_id=session_id,
+                direction="outgoing"
+            )
     
-    async def _send_to_game_server(self, session_id: str, sender: str, content: str) -> bool:
+    async def _send_to_game_server(
+        self, 
+        session_id: str, 
+        sender: str, 
+        content: str,
+        message: Optional[discord.Message] = None
+    ) -> bool:
         """
         POST message to game_server chat queue.
         
@@ -202,36 +230,74 @@ class GameChat(commands.Cog, name="game_chat"):
             session_id: Target game session
             sender: Sender's display name
             content: Message content
+            message: Original Discord message (for error logging)
         
         Returns:
             True if successful, False otherwise
         """
         if not self._http_session:
-            logger.warning("HTTP session not initialized")
+            logger.warning("[CHAT-FLOW] HTTP session not initialized")
             return False
         
         url = f"{self.game_server_url}/game/chat/{session_id}/send"
+        headers = {
+            "Coup-Service-Key": os.getenv("SERVICE_API_KEY", ""),
+            "Content-Type": "application/json"
+        }
         payload = {
             "sender": sender,
             "platform": "discord",
             "content": content
         }
         
+        logger.debug(f"[CHAT-FLOW] POST {url} payload={payload}")
+        
         try:
-            async with self._http_session.post(url, json=payload) as response:
+            async with self._http_session.post(url, json=payload, headers=headers) as response:
                 if response.status == 201:
-                    logger.debug(f"Message from {sender} sent to session {session_id}")
+                    logger.info(
+                        f"[CHAT-FLOW] GameServer accepted: session={session_id} "
+                        f"sender={sender} status=201"
+                    )
                     return True
                 else:
                     text = await response.text()
-                    logger.warning(f"Failed to send message: HTTP {response.status} - {text}")
+                    logger.warning(
+                        f"[CHAT-FLOW] GameServer rejected: session={session_id} "
+                        f"sender={sender} status={response.status} response={text[:100]}"
+                    )
+                    # Log error to database
+                    if message and message.guild:
+                        LoggingService.log_error(
+                            error_type="GameServerError",
+                            error_message=f"HTTP {response.status}: {text[:200]}",
+                            guild_id=str(message.guild.id),
+                            channel_id=str(message.channel.id),
+                            context={"session_id": session_id, "sender": sender}
+                        )
                     return False
                     
         except aiohttp.ClientError as e:
-            logger.error(f"Failed to connect to game server: {e}")
+            logger.error(f"[CHAT-FLOW] Connection failed: session={session_id} error={e}")
+            if message and message.guild:
+                LoggingService.log_error(
+                    error_type="ConnectionError",
+                    error_message=str(e),
+                    guild_id=str(message.guild.id),
+                    channel_id=str(message.channel.id),
+                    context={"session_id": session_id, "sender": sender}
+                )
             return False
         except Exception as e:
-            logger.error(f"Unexpected error sending message: {e}")
+            logger.error(f"[CHAT-FLOW] Unexpected error: session={session_id} error={e}")
+            if message and message.guild:
+                LoggingService.log_error(
+                    error_type="UnexpectedError",
+                    error_message=str(e),
+                    guild_id=str(message.guild.id),
+                    channel_id=str(message.channel.id),
+                    context={"session_id": session_id, "sender": sender}
+                )
             return False
     
     # =============================================

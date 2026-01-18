@@ -5,14 +5,15 @@ API endpoints for cross-platform game chat.
 This file handles ONLY routing - all business logic is in chat_service.py.
 """
 
-from flask import g, request
+from flask import request
 from flask_restx import Namespace, Resource
 
 from app.models.rest_api_models.chat_models import create_chat_models
-from app.services.auth_service import jwt_required, admin_required
+from app.services.auth_service import jwt_required, admin_required, service_key_required
 from app.services.chat_service import ChatService
 from app.services.chat_broadcast_service import ChatBroadcastService
 from app.services.chat_routing_service import ChatRoutingService
+from app.jobs import ChatBroadcastJob
 
 
 chat_ns = Namespace('chat', description='Cross-platform game chat operations')
@@ -28,18 +29,27 @@ models = create_chat_models(chat_ns)
 @chat_ns.route('/<string:session_id>/send')
 @chat_ns.param('session_id', 'Game session ID')
 class ChatSend(Resource):
-    """Send a chat message."""
+    """Send a chat message (service-to-service)."""
     
     @chat_ns.expect(models['send_message_request'])
     @chat_ns.response(201, 'Message queued', models['message_response'])
     @chat_ns.response(400, 'Bad request', models['error_response'])
-    @jwt_required
+    @chat_ns.response(401, 'Invalid service key', models['error_response'])
+    @service_key_required
     def post(self, session_id):
-        """Queue a chat message for broadcast."""
+        """
+        Queue a chat message for broadcast.
+        
+        Called by trusted services (Discord bot, Slack bot) to forward
+        user messages. Sender identity must be provided in payload.
+        """
         data = request.get_json() or {}
         
-        # Use provided sender or fall back to authenticated player
-        sender = data.get('sender') or g.current_player_name
+        # Sender is required (provided by calling service)
+        sender = data.get('sender')
+        if not sender:
+            return {'error': 'sender is required'}, 400
+        
         platform_str = data.get('platform', 'default')
         content = data.get('content', '')
         
@@ -135,7 +145,7 @@ class ChatSchedule(Resource):
         """Start scheduled broadcasts for a session."""
         interval = request.args.get('interval', 5, type=int)
         
-        job_id = ChatBroadcastService.schedule_broadcast(session_id, interval)
+        job_id = ChatBroadcastJob.schedule(session_id, interval)
         
         return {
             'status': 'scheduled',
@@ -148,7 +158,7 @@ class ChatSchedule(Resource):
     @admin_required
     def delete(self, session_id):
         """Stop scheduled broadcasts for a session."""
-        cancelled = ChatBroadcastService.cancel_broadcast(session_id)
+        cancelled = ChatBroadcastJob.cancel(session_id)
         
         return {
             'status': 'cancelled' if cancelled else 'not_found',

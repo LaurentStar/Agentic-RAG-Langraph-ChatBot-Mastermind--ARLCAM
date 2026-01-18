@@ -15,12 +15,13 @@ def create_session_models(api):
         'max_players': fields.Integer(description='Max players', default=6),
         'turn_limit': fields.Integer(description='Max turns (0 = unlimited)', default=10),
         'upgrades_enabled': fields.Boolean(description='Allow upgrades', default=True),
-        # Phase durations in minutes
-        'phase1_duration': fields.Integer(description='Phase 1 (actions) duration in minutes', default=50),
-        'lockout1_duration': fields.Integer(description='Lockout 1 duration in minutes', default=10),
-        'phase2_duration': fields.Integer(description='Phase 2 (reactions) duration in minutes', default=20),
-        'lockout2_duration': fields.Integer(description='Lockout 2 duration in minutes', default=10),
-        'broadcast_duration': fields.Integer(description='Broadcast phase duration in minutes', default=1)
+        # Phase durations in minutes (numbered sequentially)
+        'phase1_action_duration': fields.Integer(description='Phase 1 (actions) duration in minutes', default=50),
+        'phase2_lockout_duration': fields.Integer(description='Phase 2 (lockout) duration in minutes', default=10),
+        'phase3_reaction_duration': fields.Integer(description='Phase 3 (reactions) duration in minutes', default=20),
+        'phase4_lockout_duration': fields.Integer(description='Phase 4 (lockout) duration in minutes', default=10),
+        'phase5_broadcast_duration': fields.Integer(description='Phase 5 (broadcast) duration in minutes', default=1),
+        'phase6_ending_duration': fields.Integer(description='Phase 6 (ending/rematch) duration in minutes', default=5)
     })
     
     broadcast_destination = api.model('BroadcastDestination', {
@@ -45,12 +46,16 @@ def create_session_models(api):
         'status': fields.String(description='Session status'),
         'created_at': fields.DateTime(description='Creation time'),
         'broadcast_destinations': fields.List(fields.Nested(broadcast_destination)),
-        # Phase durations
-        'phase1_duration': fields.Integer(description='Phase 1 duration (minutes)'),
-        'lockout1_duration': fields.Integer(description='Lockout 1 duration (minutes)'),
-        'phase2_duration': fields.Integer(description='Phase 2 duration (minutes)'),
-        'lockout2_duration': fields.Integer(description='Lockout 2 duration (minutes)'),
-        'broadcast_duration': fields.Integer(description='Broadcast duration (minutes)')
+        # Phase durations (numbered sequentially)
+        'phase1_action_duration': fields.Integer(description='Phase 1 (actions) duration in minutes'),
+        'phase2_lockout_duration': fields.Integer(description='Phase 2 (lockout) duration in minutes'),
+        'phase3_reaction_duration': fields.Integer(description='Phase 3 (reactions) duration in minutes'),
+        'phase4_lockout_duration': fields.Integer(description='Phase 4 (lockout) duration in minutes'),
+        'phase5_broadcast_duration': fields.Integer(description='Phase 5 (broadcast) duration in minutes'),
+        'phase6_ending_duration': fields.Integer(description='Phase 6 (ending/rematch) duration in minutes'),
+        # Rematch tracking
+        'rematch_count': fields.Integer(description='Number of rematches played'),
+        'winners': fields.List(fields.String, description='Winner display names')
     })
     
     session_list_response = api.model('SessionListResponse', {

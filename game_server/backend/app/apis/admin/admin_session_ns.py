@@ -36,12 +36,13 @@ class AdminSessionList(Resource):
                 max_players=data.get('max_players', 6),
                 turn_limit=data.get('turn_limit', 10),
                 upgrades_enabled=data.get('upgrades_enabled', True),
-                # Phase durations
-                phase1_duration=data.get('phase1_duration', 50),
-                lockout1_duration=data.get('lockout1_duration', 10),
-                phase2_duration=data.get('phase2_duration', 20),
-                lockout2_duration=data.get('lockout2_duration', 10),
-                broadcast_duration=data.get('broadcast_duration', 1)
+                # Phase durations (numbered sequentially)
+                phase1_action_duration=data.get('phase1_action_duration', 50),
+                phase2_lockout_duration=data.get('phase2_lockout_duration', 10),
+                phase3_reaction_duration=data.get('phase3_reaction_duration', 20),
+                phase4_lockout_duration=data.get('phase4_lockout_duration', 10),
+                phase5_broadcast_duration=data.get('phase5_broadcast_duration', 1),
+                phase6_ending_duration=data.get('phase6_ending_duration', 5)
             )
             
             return SessionService.session_to_dict(session), 201
@@ -73,12 +74,13 @@ class AdminSessionResource(Resource):
                 max_players=data.get('max_players'),
                 turn_limit=data.get('turn_limit'),
                 upgrades_enabled=data.get('upgrades_enabled'),
-                # Phase durations
-                phase1_duration=data.get('phase1_duration'),
-                lockout1_duration=data.get('lockout1_duration'),
-                phase2_duration=data.get('phase2_duration'),
-                lockout2_duration=data.get('lockout2_duration'),
-                broadcast_duration=data.get('broadcast_duration')
+                # Phase durations (numbered sequentially)
+                phase1_action_duration=data.get('phase1_action_duration'),
+                phase2_lockout_duration=data.get('phase2_lockout_duration'),
+                phase3_reaction_duration=data.get('phase3_reaction_duration'),
+                phase4_lockout_duration=data.get('phase4_lockout_duration'),
+                phase5_broadcast_duration=data.get('phase5_broadcast_duration'),
+                phase6_ending_duration=data.get('phase6_ending_duration')
             )
             
             return SessionService.session_to_dict(session), 200
@@ -116,6 +118,29 @@ class AdminSessionEnd(Resource):
         """End a game session (admin or END_GAME privilege)."""
         try:
             session = SessionService.end_session(session_id)
+            return SessionService.session_to_dict(session), 200
+        except ValueError as e:
+            return {'message': str(e)}, 400
+
+
+@admin_session_ns.route('/<string:session_id>/restart')
+@admin_session_ns.param('session_id', 'Session UUID')
+class AdminSessionRestart(Resource):
+    """Session restart endpoint."""
+    
+    @admin_session_ns.response(200, 'Success', models['session_response'])
+    @admin_session_ns.response(400, 'Bad request', models['error_response'])
+    @admin_session_ns.response(404, 'Not found', models['error_response'])
+    @privilege_required(GamePrivilege.START_GAME)
+    def post(self, session_id):
+        """
+        Restart a game session (admin or START_GAME privilege).
+        
+        This resets the session to WAITING status, clears all players
+        (they must rejoin), and resets the rematch count to 0.
+        """
+        try:
+            session = SessionService.restart_session(session_id)
             return SessionService.session_to_dict(session), 200
         except ValueError as e:
             return {'message': str(e)}, 400

@@ -5,6 +5,7 @@ LangGraph nodes for classifying and routing incoming events
 to the appropriate handler workflows.
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -20,6 +21,8 @@ from app.models.graph_state_models.game_phase_state import (
 )
 from app.services.platform_response_router import PlatformResponseRouter
 
+logger = logging.getLogger(__name__)
+
 
 # =============================================
 # Classification Node
@@ -34,11 +37,15 @@ def classify_event_node(state: EventRouterState) -> Dict[str, Any]:
     3. Sets the handler name for routing
     """
     event_type_str = state.get("event_type", "")
+    game_id = state.get("game_id", "unknown")
+    
+    logger.info(f"[CHAT-FLOW] classify_event_node: game={game_id} event_type={event_type_str}")
     
     # Try to parse event type
     try:
         event_type = EventType(event_type_str)
     except ValueError:
+        logger.error(f"[CHAT-FLOW] Unknown event type: {event_type_str}")
         return {
             "error": f"Unknown event type: {event_type_str}",
             "classification": None,
@@ -48,6 +55,12 @@ def classify_event_node(state: EventRouterState) -> Dict[str, Any]:
     
     # Determine classification based on event type
     classification = _classify_event_type(event_type)
+    
+    logger.info(
+        f"[CHAT-FLOW] Event classified: type={event_type.value} "
+        f"handler={classification.get('handler_name')} "
+        f"requires_llm={classification.get('requires_llm_processing')}"
+    )
     
     return {
         "classification": classification,
@@ -118,7 +131,13 @@ def resolve_target_agents_node(state: EventRouterState) -> Dict[str, Any]:
     target_agent_id = state.get("target_agent_id")
     broadcast = state.get("broadcast_to_all_agents", False)
     
+    logger.info(
+        f"[CHAT-FLOW] resolve_target_agents_node: game={game_id} "
+        f"target_agent={target_agent_id} broadcast={broadcast}"
+    )
+    
     if not game_id:
+        logger.error("[CHAT-FLOW] No game_id provided!")
         return {
             "error": "No game_id provided",
             "agent_ids_to_process": [],
@@ -131,7 +150,12 @@ def resolve_target_agents_node(state: EventRouterState) -> Dict[str, Any]:
         agent = agent_registry.get_agent(game_id, target_agent_id)
         if agent:
             agent_ids = [target_agent_id]
+            logger.info(f"[CHAT-FLOW] Single agent target resolved: {agent_ids}")
         else:
+            logger.warning(
+                f"[CHAT-FLOW] Agent {target_agent_id} not found in game {game_id}. "
+                f"Registry stats: {agent_registry.get_stats()}"
+            )
             return {
                 "error": f"Agent {target_agent_id} not found in game {game_id}",
                 "agent_ids_to_process": [],
@@ -142,11 +166,17 @@ def resolve_target_agents_node(state: EventRouterState) -> Dict[str, Any]:
         agent_ids = agent_registry.get_agent_ids_in_game(game_id)
         
         if not agent_ids:
+            logger.warning(
+                f"[CHAT-FLOW] No agents found for game {game_id}. "
+                f"Registry stats: {agent_registry.get_stats()}"
+            )
             return {
                 "error": f"No agents found for game {game_id}",
                 "agent_ids_to_process": [],
                 "processing_complete": True,
             }
+        
+        logger.info(f"[CHAT-FLOW] Broadcast to agents: {agent_ids}")
     
     return {
         "agent_ids_to_process": agent_ids,
@@ -168,12 +198,19 @@ def handle_chat_message_node(state: EventRouterState) -> Dict[str, Any]:
     game_id = state.get("game_id")
     agent_ids = state.get("agent_ids_to_process", [])
     payload = state.get("payload", {})
+    sender_id = state.get("sender_id")
+    content = payload.get("content", "")[:50]
+    
+    logger.info(
+        f"[CHAT-FLOW] handle_chat_message_node: game={game_id} "
+        f"sender={sender_id} agents={agent_ids} content=\"{content}...\""
+    )
     
     # Build event dict for chat service
     event = {
         "event_type": state.get("event_type"),
         "source_platform": state.get("source_platform"),
-        "sender_id": state.get("sender_id"),
+        "sender_id": sender_id,
         "sender_is_llm": state.get("sender_is_llm", False),
         "game_id": game_id,
         "timestamp": state.get("timestamp"),
@@ -183,9 +220,13 @@ def handle_chat_message_node(state: EventRouterState) -> Dict[str, Any]:
     responses = []
     conversation_messages = state.get("conversation_messages", [])
     
+    if not agent_ids:
+        logger.warning(f"[CHAT-FLOW] No agents to process for game {game_id}")
+    
     for agent_id in agent_ids:
         agent = agent_registry.get_agent(game_id, agent_id)
         if agent:
+            logger.debug(f"[CHAT-FLOW] Processing for agent: {agent_id}")
             # Set platform context
             source_platform = state.get("source_platform", SocialMediaPlatform.DEFUALT)
             if isinstance(source_platform, str):
@@ -198,6 +239,15 @@ def handle_chat_message_node(state: EventRouterState) -> Dict[str, Any]:
             # Process through chat service
             try:
                 response = ChatService.process_chat_message(agent, event)
+                
+                # Log response summary
+                responded = response.get("responded", False)
+                response_content = response.get("response", "")
+                logger.info(
+                    f"[CHAT-FLOW] Agent {agent_id} result: responded={responded} "
+                    f"response=\"{str(response_content)[:50] if response_content else 'None'}...\""
+                )
+                
                 responses.append({
                     "agent_id": agent_id,
                     "success": "error" not in response,
@@ -225,15 +275,23 @@ def handle_chat_message_node(state: EventRouterState) -> Dict[str, Any]:
                     })
                     
             except Exception as e:
+                logger.error(f"[CHAT-FLOW] Error processing agent {agent_id}: {e}", exc_info=True)
                 responses.append({
                     "agent_id": agent_id,
                     "success": False,
                     "error": str(e),
                 })
+        else:
+            logger.warning(f"[CHAT-FLOW] Agent {agent_id} not found in registry for game {game_id}")
     
     # Trim conversation history to last 50 messages for checkpointing
     if len(conversation_messages) > 50:
         conversation_messages = conversation_messages[-50:]
+    
+    logger.info(
+        f"[CHAT-FLOW] handle_chat_message_node complete: "
+        f"processed={len(responses)} agents"
+    )
     
     return {
         "handler_responses": responses,
@@ -951,6 +1009,12 @@ def finalize_response_node(state: EventRouterState) -> Dict[str, Any]:
     responses = state.get("handler_responses", [])
     event_type = state.get("classified_event_type")
     source_platform = state.get("source_platform", SocialMediaPlatform.DEFUALT)
+    game_id = state.get("game_id", "unknown")
+    
+    logger.info(
+        f"[CHAT-FLOW] finalize_response_node: game={game_id} "
+        f"response_count={len(responses)}"
+    )
     
     if isinstance(source_platform, str):
         try:
@@ -974,6 +1038,17 @@ def finalize_response_node(state: EventRouterState) -> Dict[str, Any]:
             "source_platform": source_platform.value,
             "agent_responses": responses,
         }
+    
+    # Log summary of agent responses
+    for resp in responses:
+        agent_id = resp.get("agent_id", "unknown")
+        inner_resp = resp.get("response", {})
+        responded = inner_resp.get("responded", False) if isinstance(inner_resp, dict) else False
+        response_text = inner_resp.get("response", "") if isinstance(inner_resp, dict) else ""
+        logger.info(
+            f"[CHAT-FLOW] Final: agent={agent_id} responded={responded} "
+            f"text=\"{str(response_text)[:50] if response_text else 'None'}...\""
+        )
     
     return {
         "final_response": final_response,

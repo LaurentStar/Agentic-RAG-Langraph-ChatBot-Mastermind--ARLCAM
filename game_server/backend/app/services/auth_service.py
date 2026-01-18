@@ -4,6 +4,7 @@ Authentication Service.
 Handles JWT token generation, validation, and password hashing.
 """
 
+import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from typing import Optional, Tuple
@@ -160,4 +161,63 @@ def privilege_required(privilege: str):
         
         return decorated
     return decorator
+
+
+# =============================================
+# Service-to-Service Authentication
+# =============================================
+
+# API key for trusted services (Discord bot, Slack bot, etc.)
+SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "dev-service-key")
+
+
+def service_key_required(f):
+    """
+    Decorator to require valid Coup-Service-Key header.
+    
+    Used for service-to-service communication (e.g., Discord bot -> Game Server).
+    This authenticates the calling service, not the end user.
+    User identity should be provided in the request payload for moderation tracking.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        api_key = request.headers.get('Coup-Service-Key')
+        
+        if not api_key or api_key != SERVICE_API_KEY:
+            return {'error': 'Invalid or missing service key'}, 401
+        
+        return f(*args, **kwargs)
+    
+    return decorated
+
+
+# =============================================
+# Developer Operations Authentication
+# =============================================
+
+# API key for developers (human operators, not machines)
+OPS_API_KEY = os.getenv("OPS_API_KEY", "dev-ops-key")
+
+
+def ops_key_required(f):
+    """
+    Decorator to require valid Coup-Ops-Key header.
+    
+    Used for developer operations (debugging, monitoring, introspection).
+    This authenticates human developers, not automated services.
+    
+    Different from service_key_required:
+    - Coup-Service-Key: Machine-to-machine (bots calling APIs)
+    - Coup-Ops-Key: Human-to-machine (developers debugging)
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        api_key = request.headers.get('Coup-Ops-Key')
+        
+        if not api_key or api_key != OPS_API_KEY:
+            return {'error': 'Invalid or missing ops key'}, 401
+        
+        return f(*args, **kwargs)
+    
+    return decorated
 

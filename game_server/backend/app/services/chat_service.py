@@ -5,6 +5,7 @@ Handles chat message queue operations and bot endpoint management.
 All business logic for chat endpoints lives here.
 """
 
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -12,6 +13,9 @@ from app.constants import SocialMediaPlatform
 from app.extensions import db
 from app.models.postgres_sql_db_models import ChatMessage, ChatBotEndpoint
 from app.services.lang_graph_client import LangGraphClient
+from app.services.logging_service import GameServerLoggingService
+
+logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -205,8 +209,21 @@ class ChatService:
         db.session.add(message)
         db.session.commit()
         
+        # Log the message received
+        GameServerLoggingService.log_chat_flow(
+            session_id=session_id,
+            sender_id=sender_display_name,
+            platform=sender_platform.value,
+            content=content,
+            direction="received"
+        )
+        
         # Push to lang_graph_server (fire-and-forget)
         # LLM agents will receive this event and decide whether to respond
+        logger.info(
+            f"[CHAT-FLOW] Pushing to LangGraph: session={session_id} "
+            f"sender={sender_display_name} platform={sender_platform.value}"
+        )
         LangGraphClient.push_chat_event(
             session_id=session_id,
             sender_id=sender_display_name,

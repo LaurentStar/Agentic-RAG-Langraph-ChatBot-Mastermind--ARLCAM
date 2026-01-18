@@ -15,11 +15,14 @@ The workflow-based approach enables:
 - Visual debugging in LangGraph Studio
 """
 
+import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from app.constants import EventType, MessageTargetType, SocialMediaPlatform
 from app.extensions import agent_registry, lang_graph_app
+
+logger = logging.getLogger(__name__)
 
 
 class CoupEventService:
@@ -58,22 +61,56 @@ class CoupEventService:
         if 'timestamp' not in event:
             event['timestamp'] = datetime.now().isoformat()
         
+        # Log incoming event
+        game_id = event.get("game_id", "unknown")
+        sender_id = event.get("sender_id", "unknown")
+        event_type = event.get("event_type", "chat_message")
+        payload = event.get("payload", {})
+        content_preview = str(payload.get("content", ""))[:50]
+        
+        logger.info(
+            f"[CHAT-FLOW] LangGraph received: game_id={game_id} "
+            f"sender_id={sender_id} event_type={event_type} "
+            f"content=\"{content_preview}...\""
+        )
+        
         # Build initial state for workflow
         initial_state = {
-            "event_type": event.get("event_type", "chat_message"),
+            "event_type": event_type,
             "source_platform": event.get("source_platform", "defualt"),
-            "sender_id": event.get("sender_id", ""),
+            "sender_id": sender_id,
             "sender_is_llm": event.get("sender_is_llm", False),
-            "game_id": event.get("game_id", ""),
+            "game_id": game_id,
             "timestamp": event.get("timestamp"),
-            "payload": event.get("payload", {}),
+            "payload": payload,
             "target_agent_id": event.get("target_agent_id"),
             "broadcast_to_all_agents": event.get("broadcast_to_all_agents", False),
         }
         
+        logger.debug(f"[CHAT-FLOW] Workflow initial_state: {initial_state}")
+        
         # Run through EventRouterWorkflow
         try:
             result = lang_graph_app.event_router_wf.run(initial_state)
+            
+            # Log workflow result
+            handler_responses = result.get("handler_responses", [])
+            agents_responded = len(handler_responses)
+            logger.info(
+                f"[CHAT-FLOW] Workflow complete: game_id={game_id} "
+                f"handlers_invoked={agents_responded} "
+                f"processing_complete={result.get('processing_complete', False)}"
+            )
+            
+            # Log each agent's response decision
+            for resp in handler_responses:
+                agent_id = resp.get("agent_id", "unknown")
+                should_respond = resp.get("should_respond", False)
+                reason = resp.get("reason", "no reason given")
+                logger.info(
+                    f"[CHAT-FLOW] Agent decision: agent={agent_id} "
+                    f"should_respond={should_respond} reason=\"{reason}\""
+                )
             
             # Extract final response from workflow result
             final_response = result.get("final_response", {})
@@ -83,15 +120,18 @@ class CoupEventService:
             # Fallback if no final_response
             return {
                 "success": result.get("processing_complete", False),
-                "event_type": event.get("event_type"),
-                "handler_responses": result.get("handler_responses", []),
+                "event_type": event_type,
+                "handler_responses": handler_responses,
                 "error": result.get("error"),
             }
             
         except Exception as e:
+            logger.error(
+                f"[CHAT-FLOW] Workflow error: game_id={game_id} error={e}"
+            )
             return {
                 "success": False,
-                "event_type": event.get("event_type"),
+                "event_type": event_type,
                 "error": f"Workflow execution failed: {str(e)}",
             }
     
@@ -200,5 +240,123 @@ class CoupEventService:
     def get_registry_stats() -> dict:
         """Get registry-wide statistics."""
         return agent_registry.get_stats()
+    
+    # =============================================
+    # Agent Registration
+    # =============================================
+    
+    @staticmethod
+    def register_agents(game_id: str, agent_configs: List[Dict]) -> dict:
+        """
+        Register LLM agents for a game session.
+        
+        Called by game_server when a session starts or LLM agents join.
+        Creates agent instances in the in-memory registry.
+        
+        Args:
+            game_id: Game session ID
+            agent_configs: List of agent configuration dicts
+            
+        Returns:
+            Registration result dict
+        """
+        from app.services.profile_sync_service import ProfileSyncService
+        
+        logger.info(
+            f"[AGENT-REG] Registering {len(agent_configs)} agents for game {game_id}"
+        )
+        
+        results = []
+        
+        for config in agent_configs:
+            agent_id = config.get('agent_id')
+            
+            if not agent_id:
+                results.append({
+                    'agent_id': None,
+                    'success': False,
+                    'error': 'agent_id is required',
+                })
+                continue
+            
+            try:
+                # Build agent profile
+                play_style = config.get('play_style', 'balanced')
+                personality = config.get('personality', 'friendly')
+                
+                profile = ProfileSyncService.build_agent_profile(
+                    display_name=agent_id,
+                    play_style=play_style,
+                    personality=personality,
+                )
+                
+                # Register agent
+                agent = agent_registry.register_agent(
+                    game_id=game_id,
+                    agent_id=agent_id,
+                    profile=profile,
+                    initial_coins=config.get('coins', 2),
+                    players_alive=config.get('players_alive', []),
+                )
+                
+                logger.info(
+                    f"[AGENT-REG] Registered agent: game={game_id} "
+                    f"agent={agent_id} play_style={play_style}"
+                )
+                
+                results.append({
+                    'agent_id': agent_id,
+                    'success': True,
+                })
+                
+            except Exception as e:
+                logger.error(
+                    f"[AGENT-REG] Failed to register agent {agent_id}: {e}"
+                )
+                results.append({
+                    'agent_id': agent_id,
+                    'success': False,
+                    'error': str(e),
+                })
+        
+        successful = sum(1 for r in results if r.get('success'))
+        
+        logger.info(
+            f"[AGENT-REG] Registration complete: game={game_id} "
+            f"registered={successful}/{len(agent_configs)}"
+        )
+        
+        return {
+            'game_id': game_id,
+            'agents_registered': successful,
+            'agents': results,
+        }
+    
+    @staticmethod
+    def cleanup_game_agents(game_id: str) -> dict:
+        """
+        Remove all agents for a game session.
+        
+        Called when a game session ends to free memory.
+        
+        Args:
+            game_id: Game session ID
+            
+        Returns:
+            Cleanup result dict
+        """
+        logger.info(f"[AGENT-REG] Cleaning up agents for game {game_id}")
+        
+        agents_removed = agent_registry.cleanup_game(game_id)
+        
+        logger.info(
+            f"[AGENT-REG] Cleanup complete: game={game_id} removed={agents_removed}"
+        )
+        
+        return {
+            'game_id': game_id,
+            'agents_removed': agents_removed,
+            'success': True,
+        }
     
 

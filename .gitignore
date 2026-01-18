@@ -217,3 +217,17 @@ venv_arlcam_project_lang_graph_server
 
 test
 .chroma/
+
+# Node.js / Frontend
+node_modules/
+.next/
+out/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+
+# Frontend environment files (contains API URLs, etc.)
+game_server/frontend/.env.local
+game_server/frontend/.env.development
+game_server/frontend/.env.qa
+game_server/frontend/.env.production

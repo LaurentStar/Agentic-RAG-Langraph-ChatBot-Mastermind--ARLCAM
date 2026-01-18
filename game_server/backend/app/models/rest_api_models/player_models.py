@@ -14,7 +14,7 @@ def create_player_models(api):
         'display_name': fields.String(required=True, description='Unique player identifier'),
         'password': fields.String(required=True, description='Player password'),
         'social_media_platform_display_name': fields.String(description='Username on platform (defaults to display_name)'),
-        'social_media_platform': fields.String(description='Platform (discord, slack, twitter, etc.)', default='default'),
+        'platform': fields.String(description='Platform (discord, slack, default, etc.)', default='default'),
         'player_type': fields.String(description='Player type: human, llm_agent, or admin', default='human'),
         # Admin-specific
         'bootstrap_secret': fields.String(description='Secret key for first admin registration (from ADMIN_BOOTSTRAP_SECRET env var)'),
@@ -28,7 +28,7 @@ def create_player_models(api):
         'display_name': fields.String(required=True, description='Unique agent identifier'),
         'password': fields.String(required=True, description='API key or password'),
         'social_media_platform_display_name': fields.String(required=True, description='Bot username'),
-        'social_media_platform': fields.String(required=True, description='Platform'),
+        'platform': fields.String(required=True, description='Platform (discord, slack, default, etc.)'),
         'personality_type': fields.String(description='Personality style', default='balanced'),
         'modulators': fields.Raw(description='Modulator values dict')
     })
@@ -36,7 +36,8 @@ def create_player_models(api):
     player_response = api.model('PlayerResponse', {
         'display_name': fields.String(description='Player identifier'),
         'social_media_platform_display_name': fields.String(description='Username on platform'),
-        'social_media_platform': fields.String(description='Platform'),
+        'social_media_platforms': fields.List(fields.String, description='All platforms player has registered on'),
+        'preferred_social_media_platform': fields.String(description='Player preferred platform'),
         'player_type': fields.String(description='Type of player'),
         'session_id': fields.String(description='Current game session'),
         'coins': fields.Integer(description='Current coin count'),
@@ -46,7 +47,7 @@ def create_player_models(api):
     
     player_update_request = api.model('PlayerUpdateRequest', {
         'social_media_platform_display_name': fields.String(description='New username'),
-        'social_media_platform': fields.String(description='New platform'),
+        'preferred_social_media_platform': fields.String(description='Set preferred platform'),
         'game_privileges': fields.List(fields.String, description='New privileges')
     })
     

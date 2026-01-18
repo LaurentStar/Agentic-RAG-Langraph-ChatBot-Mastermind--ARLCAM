@@ -44,3 +44,31 @@ def create_auth_models(api):
         'error_response': error_response
     }
 
+
+def create_oauth_models(api):
+    """Create and return OAuth-related API models."""
+    
+    token_by_provider_request = api.model('TokenByProviderRequest', {
+        'provider': fields.String(
+            required=True, 
+            description='OAuth provider (discord, google, slack)', 
+            example='discord'
+        ),
+        'provider_user_id': fields.String(
+            required=True, 
+            description='User ID from the provider', 
+            example='123456789012345678'
+        )
+    })
+    
+    token_by_provider_response = api.model('TokenByProviderResponse', {
+        'access_token': fields.String(description='JWT access token'),
+        'refresh_token': fields.String(description='JWT refresh token'),
+        'player_display_name': fields.String(description='Player display name'),
+        'player_type': fields.String(description='Player type (human, llm_agent, admin)')
+    })
+    
+    return {
+        'token_by_provider_request': token_by_provider_request,
+        'token_by_provider_response': token_by_provider_response
+    }

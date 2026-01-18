@@ -14,6 +14,7 @@ Analysis Mode:
 - 0.7-1.0: LLM primary (more nuanced, expensive)
 """
 
+import logging
 from typing import Any, Dict, Optional, Tuple
 
 from app.constants import AgentModulator, CoupAction, MessageTargetType, SocialMediaPlatform
@@ -28,6 +29,8 @@ from app.services.platform_response_router import (
     PlatformResponseRouter,
     get_platform_config,
 )
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================
@@ -53,10 +56,18 @@ def analyze_message_node(state: ChatReasoningState) -> Dict[str, Any]:
     Returns:
         Dict with message_analysis and analysis_source
     """
+    agent_id = state.get("agent_id", "unknown")
+    incoming = state.get("incoming_message", {})
+    content = incoming.get("content", "")[:50]
+    
+    logger.info(f"[CHAT-FLOW] analyze_message_node: agent={agent_id} content=\"{content}...\"")
+    
     # Get LLM reliance setting from agent profile
     agent_profile = state.get("agent_profile", {})
     modulators = agent_profile.get("agent_modulators", {})
     llm_reliance = modulators.get(AgentModulator.LLM_RELIANCE, 0.3)
+    
+    logger.debug(f"[CHAT-FLOW] LLM reliance: {llm_reliance}")
     
     # Always run heuristics (fast baseline)
     heuristic_analysis = _run_heuristic_analysis(state)
@@ -64,6 +75,11 @@ def analyze_message_node(state: ChatReasoningState) -> Dict[str, Any]:
     # Determine analysis mode based on LLM_RELIANCE
     if llm_reliance < LLM_RELIANCE_THRESHOLD_LOW:
         # Pure heuristics mode
+        logger.info(
+            f"[CHAT-FLOW] Analysis complete (heuristic): agent={agent_id} "
+            f"intent={heuristic_analysis.get('intent')} "
+            f"relevance={heuristic_analysis.get('relevance_score'):.2f}"
+        )
         return {
             "message_analysis": heuristic_analysis,
             "analysis_source": "heuristic",
@@ -75,10 +91,15 @@ def analyze_message_node(state: ChatReasoningState) -> Dict[str, Any]:
         llm_analysis = _run_llm_analysis(state)
     except Exception as e:
         # LLM failed - fall back to heuristics
-        pass
+        logger.warning(f"[CHAT-FLOW] LLM analysis failed: {e}")
     
     if llm_analysis is None:
         # LLM unavailable or failed
+        logger.info(
+            f"[CHAT-FLOW] Analysis complete (heuristic_fallback): agent={agent_id} "
+            f"intent={heuristic_analysis.get('intent')} "
+            f"relevance={heuristic_analysis.get('relevance_score'):.2f}"
+        )
         return {
             "message_analysis": heuristic_analysis,
             "analysis_source": "heuristic_fallback",
@@ -87,6 +108,11 @@ def analyze_message_node(state: ChatReasoningState) -> Dict[str, Any]:
     if llm_reliance >= LLM_RELIANCE_THRESHOLD_HIGH:
         # LLM primary mode - use LLM with heuristic validation
         final_analysis = _blend_analysis(llm_analysis, heuristic_analysis, llm_weight=0.8)
+        logger.info(
+            f"[CHAT-FLOW] Analysis complete (llm_primary): agent={agent_id} "
+            f"intent={final_analysis.get('intent')} "
+            f"relevance={final_analysis.get('relevance_score'):.2f}"
+        )
         return {
             "message_analysis": final_analysis,
             "analysis_source": "llm_primary",
@@ -95,6 +121,11 @@ def analyze_message_node(state: ChatReasoningState) -> Dict[str, Any]:
     # Blended mode - weight by llm_reliance
     llm_weight = (llm_reliance - LLM_RELIANCE_THRESHOLD_LOW) / (LLM_RELIANCE_THRESHOLD_HIGH - LLM_RELIANCE_THRESHOLD_LOW)
     final_analysis = _blend_analysis(llm_analysis, heuristic_analysis, llm_weight=llm_weight)
+    logger.info(
+        f"[CHAT-FLOW] Analysis complete (blended): agent={agent_id} "
+        f"intent={final_analysis.get('intent')} "
+        f"relevance={final_analysis.get('relevance_score'):.2f}"
+    )
     return {
         "message_analysis": final_analysis,
         "analysis_source": "blended",
@@ -435,14 +466,21 @@ def decide_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     - Strategic value of responding
     - Agent personality
     """
+    agent_id = state.get("agent_id", "unknown")
     analysis = state.get("message_analysis", {})
     can_respond = state.get("can_respond", False)
     messages_remaining = state.get("messages_remaining", 0)
     play_style = state.get("agent_play_style", "balanced")
     
+    logger.info(
+        f"[CHAT-FLOW] decide_response_node: agent={agent_id} "
+        f"can_respond={can_respond} messages_remaining={messages_remaining}"
+    )
+    
     # ========== Check Hard Limits ==========
     
     if not can_respond:
+        logger.info(f"[CHAT-FLOW] Decision: agent={agent_id} NOT responding (limit reached)")
         return {
             "response_decision": ResponseDecision(
                 should_respond=False,
@@ -468,16 +506,26 @@ def decide_response_node(state: ChatReasoningState) -> Dict[str, Any]:
         opportunity * 0.2
     )
     
+    logger.debug(
+        f"[CHAT-FLOW] Priority calculation: agent={agent_id} "
+        f"relevance={relevance:.2f} urgency={urgency:.2f} "
+        f"threat={threat:.2f} opportunity={opportunity:.2f} "
+        f"mentions_agent={mentions_agent} raw_score={priority_score:.2f}"
+    )
+    
     # Adjust for play style
     if "quiet" in play_style.lower() or "passive" in play_style.lower():
         priority_score *= 0.7  # Less likely to respond
     elif "aggressive" in play_style.lower() or "chatty" in play_style.lower():
         priority_score *= 1.3  # More likely to respond
     
+    logger.debug(f"[CHAT-FLOW] Adjusted priority: {priority_score:.2f} (play_style={play_style})")
+    
     # ========== Make Decision ==========
     
     # Always respond if directly mentioned
     if mentions_agent and can_respond:
+        logger.info(f"[CHAT-FLOW] Decision: agent={agent_id} RESPONDING (directly mentioned)")
         return {
             "response_decision": ResponseDecision(
                 should_respond=True,
@@ -488,6 +536,7 @@ def decide_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     
     # High priority threshold
     if priority_score > 0.6:
+        logger.info(f"[CHAT-FLOW] Decision: agent={agent_id} RESPONDING (high priority {priority_score:.2f})")
         return {
             "response_decision": ResponseDecision(
                 should_respond=True,
@@ -498,6 +547,7 @@ def decide_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     
     # Medium priority - respond if plenty of messages left
     if priority_score > 0.4 and messages_remaining > 10:
+        logger.info(f"[CHAT-FLOW] Decision: agent={agent_id} RESPONDING (medium priority)")
         return {
             "response_decision": ResponseDecision(
                 should_respond=True,
@@ -508,6 +558,7 @@ def decide_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     
     # Low priority - only respond if very high message budget
     if priority_score > 0.25 and messages_remaining > 50:
+        logger.info(f"[CHAT-FLOW] Decision: agent={agent_id} RESPONDING (low priority, high budget)")
         return {
             "response_decision": ResponseDecision(
                 should_respond=True,
@@ -517,6 +568,10 @@ def decide_response_node(state: ChatReasoningState) -> Dict[str, Any]:
         }
     
     # Default: don't respond
+    logger.info(
+        f"[CHAT-FLOW] Decision: agent={agent_id} NOT responding "
+        f"(priority={priority_score:.2f}, remaining={messages_remaining})"
+    )
     return {
         "response_decision": ResponseDecision(
             should_respond=False,
@@ -539,10 +594,14 @@ def generate_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     Falls back to heuristic responses if LLM unavailable.
     Formats response for the target platform.
     """
+    agent_id = state.get("agent_id", "unknown")
     decision = state.get("response_decision", {})
+    
+    logger.info(f"[CHAT-FLOW] generate_response_node: agent={agent_id}")
     
     # Skip if not responding
     if not decision.get("should_respond", False):
+        logger.debug(f"[CHAT-FLOW] Skipping generation (should_respond=False)")
         return {
             "generated_response": None,
             "final_response": None,
@@ -563,13 +622,24 @@ def generate_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     # Try LLM generation
     response = None
     try:
+        logger.debug(f"[CHAT-FLOW] Attempting LLM response generation...")
         response = _generate_llm_response(state)
-    except Exception:
-        pass  # Fall back to heuristic
+        if response:
+            logger.info(
+                f"[CHAT-FLOW] LLM generated: agent={agent_id} "
+                f"content=\"{response.get('content', '')[:50]}...\""
+            )
+    except Exception as e:
+        logger.warning(f"[CHAT-FLOW] LLM generation failed: {e}")
     
     # Heuristic fallback
     if not response:
+        logger.info(f"[CHAT-FLOW] Using heuristic response fallback")
         response = _generate_heuristic_response(state)
+        logger.debug(
+            f"[CHAT-FLOW] Heuristic generated: agent={agent_id} "
+            f"content=\"{response.get('content', '')[:50]}...\""
+        )
     
     # Format for target platform
     platform_router = PlatformResponseRouter()
@@ -591,6 +661,12 @@ def generate_response_node(state: ChatReasoningState) -> Dict[str, Any]:
     response["content"] = formatted.content
     response["target_platform"] = formatted.platform.value
     response["was_truncated"] = formatted.was_truncated
+    
+    logger.info(
+        f"[CHAT-FLOW] Response generated: agent={agent_id} "
+        f"platform={formatted.platform.value} truncated={formatted.was_truncated} "
+        f"content=\"{formatted.content[:50]}...\""
+    )
     
     return {
         "generated_response": response,

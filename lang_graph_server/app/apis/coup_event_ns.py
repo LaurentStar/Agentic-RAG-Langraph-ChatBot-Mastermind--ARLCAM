@@ -68,6 +68,40 @@ class GameAgents(Resource):
     def get(self, game_id: str):
         """Get all LLM agents registered for a game."""
         return CoupEventService.get_game_agents(game_id)
+    
+    @coup_event_ns.response(200, 'Success', models['cleanup_agents_response'])
+    def delete(self, game_id: str):
+        """
+        Remove all agents for a game (cleanup).
+        
+        Called when a game session ends to free memory.
+        """
+        result = CoupEventService.cleanup_game_agents(game_id)
+        return result, 200
+
+
+@coup_event_ns.route('/agents/<string:game_id>/register')
+class RegisterAgents(Resource):
+    """Register LLM agents for a game session."""
+    
+    @coup_event_ns.expect(models['register_agents_request'], validate=True)
+    @coup_event_ns.response(200, 'Agents registered', models['register_agents_response'])
+    @coup_event_ns.response(400, 'Invalid request')
+    def post(self, game_id: str):
+        """
+        Register LLM agents for a game session.
+        
+        Called by game_server when a session starts or LLM agents join.
+        This creates agent instances in the in-memory registry so they
+        can process events.
+        """
+        data = request.get_json()
+        
+        if not data or 'agents' not in data:
+            return {'success': False, 'error': 'No agents provided'}, 400
+        
+        result = CoupEventService.register_agents(game_id, data['agents'])
+        return result, 200
 
 
 @coup_event_ns.route('/agents/<string:game_id>/<string:agent_id>/stats')

@@ -100,6 +100,30 @@ class GameSessionLeave(Resource):
             return {'message': str(e)}, 400
 
 
+@game_session_ns.route('/<string:session_id>/request-rematch')
+@game_session_ns.param('session_id', 'Session UUID')
+class GameSessionRematch(Resource):
+    """Session rematch request endpoint."""
+    
+    @game_session_ns.response(200, 'Success', models['session_response'])
+    @game_session_ns.response(400, 'Bad request', models['error_response'])
+    @game_session_ns.response(404, 'Not found', models['error_response'])
+    @jwt_required
+    def post(self, session_id):
+        """
+        Request a rematch for a completed game.
+        
+        Only available during the ENDING phase.
+        All current players are kept in the session.
+        Maximum of 3 rematches allowed per session.
+        """
+        try:
+            session = SessionService.rematch_session(session_id)
+            return SessionService.session_to_dict(session), 200
+        except ValueError as e:
+            return {'message': str(e)}, 400
+
+
 @game_session_ns.route('/<string:session_id>/status')
 @game_session_ns.param('session_id', 'Session UUID')
 class GameSessionStatus(Resource):

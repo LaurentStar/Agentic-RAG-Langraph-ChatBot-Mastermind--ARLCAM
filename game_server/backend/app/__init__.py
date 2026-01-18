@@ -37,6 +37,10 @@ from app.apis import (
     player_ns,
     # System
     health_ns,
+    # Ops (Developer)
+    status_ns,
+    jobs_ns,
+    connections_ns,
 )
 
 # Import all models (required for db.create_all() to work)
@@ -47,6 +51,7 @@ from app.models.postgres_sql_db_models import (
     BroadcastDestination,
     ChatBotEndpoint,
     ChatMessage,
+    GameServerLog,
     GameSession,
     OAuthIdentity,
     Player,
@@ -142,6 +147,11 @@ def create_app(test_config=None):
     
     # System domain
     api.add_namespace(health_ns, path='/health')
+    
+    # Ops domain (Developer)
+    api.add_namespace(status_ns, path='/ops/status')
+    api.add_namespace(jobs_ns, path='/ops/jobs')
+    api.add_namespace(connections_ns, path='/ops/connections')
     
     # =============================================
     # LOCAL DEVELOPMENT (conditional)
