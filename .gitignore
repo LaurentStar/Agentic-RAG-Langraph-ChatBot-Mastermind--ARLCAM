@@ -217,6 +217,7 @@ venv_arlcam_project_lang_graph_server
 
 test
 .chroma/
+.cursor/
 
 # Node.js / Frontend
 node_modules/
