@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login Success - Coup Game</title>
+    <title>Login Success - Coup Game (Developer Mode)</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='w3.css') }}">
     <style>
         body {
@@ -45,12 +45,26 @@
             justify-content: center;
             margin: 0 auto;
         }
+        .dev-badge {
+            background-color: #ff6b6b;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body>
     <div class="w3-container">
         <div class="success-card w3-card-4 w3-round-xlarge w3-dark-grey">
             <div class="w3-container w3-padding-24">
+                <!-- Developer Mode Badge -->
+                <div class="w3-center w3-margin-bottom">
+                    <span class="dev-badge">Developer Mode</span>
+                </div>
+                
                 <!-- Success Icon -->
                 <div class="w3-center w3-margin-bottom">
                     <div class="checkmark">
@@ -65,6 +79,15 @@
                     <h2 class="logo-text">Authentication Successful!</h2>
                     <p class="w3-text-grey">Welcome, <strong class="w3-text-white">{{ display_name }}</strong></p>
                     <p class="w3-small w3-text-grey">via {{ provider }}</p>
+                </div>
+                
+                <!-- Info Banner -->
+                <div class="w3-panel w3-round w3-pale-blue w3-leftbar w3-border-blue">
+                    <p class="w3-small">
+                        <strong>ℹ️ Note:</strong> This page is for API testing only. 
+                        In the production OAuth flow, users are automatically redirected 
+                        to the frontend with HTTP-only cookies set.
+                    </p>
                 </div>
                 
                 <!-- Tokens Section -->
@@ -92,10 +115,11 @@
                     </div>
                 </div>
                 
-                <!-- Info -->
+                <!-- Warning -->
                 <div class="w3-panel w3-round w3-pale-yellow w3-leftbar w3-border-amber">
                     <p class="w3-small">
-                        <strong>⚠️ Developer Mode:</strong> In production, tokens are stored securely and not displayed.
+                        <strong>⚠️ Security:</strong> Never share these tokens. 
+                        They provide full access to your account.
                     </p>
                 </div>
                 

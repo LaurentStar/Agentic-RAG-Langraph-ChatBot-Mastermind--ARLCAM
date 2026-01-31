@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from sqlalchemy import ForeignKey, String, DateTime, Boolean, Text
+from sqlalchemy import ForeignKey, String, DateTime, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,7 +26,7 @@ class AccountLinkRequest(db.Model):
     """
     
     __bind_key__ = 'db_players'
-    __tablename__ = 'account_link_request'
+    __tablename__ = 'gs_account_link_request_table_orm'
     
     # ---------------------- Identity ---------------------- #
     id: Mapped[uuid.UUID] = mapped_column(
@@ -35,9 +35,10 @@ class AccountLinkRequest(db.Model):
         default=uuid.uuid4
     )
     
-    # ---------------------- Player Link ---------------------- #
-    player_display_name: Mapped[str] = mapped_column(
-        ForeignKey("player_table_orm.display_name"),
+    # ---------------------- User Link ---------------------- #
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gs_user_account_table_orm.user_id", ondelete="CASCADE"),
         nullable=False,
         index=True
     )
@@ -56,7 +57,7 @@ class AccountLinkRequest(db.Model):
         unique=True,
         index=True
     )
-    # Token sent to player's existing/primary email
+    # Token sent to user's existing/primary email
     
     token_secondary: Mapped[str] = mapped_column(
         String(64),
@@ -92,7 +93,7 @@ class AccountLinkRequest(db.Model):
     # Set when both confirmations received and link established
     
     # ---------------------- Relationships ---------------------- #
-    player = relationship("Player", backref="link_requests")
+    user = relationship("UserAccount", back_populates="link_requests")
     
     # ---------------------- Helper Properties ---------------------- #
     @property
@@ -112,13 +113,13 @@ class AccountLinkRequest(db.Model):
     
     def __repr__(self):
         status = "complete" if self.is_complete else ("expired" if self.is_expired else "pending")
-        return f"<AccountLinkRequest {self.player_display_name} -> {self.target_provider} [{status}]>"
+        return f"<AccountLinkRequest user={self.user_id} -> {self.target_provider} [{status}]>"
     
     def to_dict(self):
         """Convert to dictionary."""
         return {
             'id': str(self.id),
-            'player_display_name': self.player_display_name,
+            'user_id': str(self.user_id),
             'target_provider': self.target_provider,
             'target_email': self.target_email,
             'primary_confirmed': self.primary_confirmed,
@@ -129,4 +130,3 @@ class AccountLinkRequest(db.Model):
             'expires_at': self.expires_at.isoformat() if self.expires_at else None,
             'completed_at': self.completed_at.isoformat() if self.completed_at else None
         }
-

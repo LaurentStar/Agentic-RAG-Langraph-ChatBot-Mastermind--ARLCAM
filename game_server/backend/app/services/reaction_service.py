@@ -8,7 +8,8 @@ from typing import List, Optional, Dict, Any
 
 from app.constants import ReactionType, ToBeInitiated, BLOCK_ROLES, CardType
 from app.extensions import db
-from app.models.postgres_sql_db_models import GameSession, Player, Reaction
+from app.models.postgres_sql_db_models import GameSession, Reaction
+from app.crud import PlayerGameStateCRUD
 
 
 class ReactionService:
@@ -182,17 +183,18 @@ class ReactionService:
         if not session:
             return []
         
-        players = Player.query.filter_by(session_id=session_id).all()
+        # Get all players in session with their user accounts
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
         actions = []
         
-        for player in players:
-            if not player.is_alive:
+        for user, game_state in player_data:
+            if not game_state.is_alive:
                 continue
             
-            if not player.to_be_initiated:
+            if not game_state.to_be_initiated:
                 continue
             
-            for action in player.to_be_initiated:
+            for action in game_state.to_be_initiated:
                 if action == ToBeInitiated.NO_EVENT:
                     continue
                 
@@ -207,9 +209,9 @@ class ReactionService:
                 
                 if is_challengeable or is_blockable:
                     actions.append({
-                        'actor_display_name': player.display_name,
+                        'actor_display_name': user.display_name,
                         'action': action.value,
-                        'target_display_name': player.target_display_name,
+                        'target_display_name': game_state.target_display_name,
                         'is_challengeable': is_challengeable,
                         'is_blockable': is_blockable,
                         'valid_block_roles': [r.value for r in BLOCK_ROLES.get(action, [])]

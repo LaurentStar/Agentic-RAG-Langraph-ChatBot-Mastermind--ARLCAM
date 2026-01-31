@@ -49,7 +49,7 @@ class OpsStatusService:
         Returns:
             Dict with session, player, and job counts
         """
-        from app.models.postgres_sql_db_models import GameSession, Player
+        from app.models.postgres_sql_db_models import GameSession, UserAccount
         from app.constants import SessionStatus
         from app import scheduler
         
@@ -60,8 +60,8 @@ class OpsStatusService:
         
         total_sessions = GameSession.query.count()
         
-        # Count players
-        total_players = Player.query.count()
+        # Count users
+        total_players = UserAccount.query.count()
         
         # Count scheduled jobs
         jobs = scheduler.get_jobs()

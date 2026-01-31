@@ -18,12 +18,12 @@ class BroadcastDestination(db.Model):
     """Broadcast destination table ORM model."""
     
     __bind_key__ = 'db_players'
-    __tablename__ = 'broadcast_destination_table_orm'
+    __tablename__ = 'gs_broadcast_destination_table_orm'
     
     # ---------------------- Identity ---------------------- #
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(
-        ForeignKey("game_session_table_orm.session_id"),
+        ForeignKey("gs_game_session_table_orm.session_id"),
         nullable=False
     )
     

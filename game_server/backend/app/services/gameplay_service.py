@@ -16,7 +16,9 @@ from app.constants import (
     ToBeInitiated,
 )
 from app.extensions import db
-from app.models.postgres_sql_db_models import GameSession, Player, ToBeInitiatedUpgradeDetails
+from app.models.postgres_sql_db_models import GameSession, UserAccount, PlayerGameState
+from app.models.postgres_sql_db_models.player_game_state import ToBeInitiatedUpgradeDetails
+from app.crud import UserAccountCRUD, PlayerGameStateCRUD, GameSessionCRUD
 
 
 class GameplayService:
@@ -26,26 +28,32 @@ class GameplayService:
     def get_session_and_player(
         session_id: str,
         player_name: str
-    ) -> Tuple[Optional[GameSession], Optional[Player], Optional[Dict], Optional[int]]:
+    ) -> Tuple[Optional[GameSession], Optional[Tuple[UserAccount, PlayerGameState]], Optional[Dict], Optional[int]]:
         """
         Get session and player, validating they exist and player is in session.
         
         Returns:
-            Tuple of (session, player, error_dict, error_code)
+            Tuple of (session, (user, game_state), error_dict, error_code)
             If valid, error_dict and error_code are None.
         """
         session = GameSession.query.filter_by(session_id=session_id).first()
         if not session:
             return None, None, {'error': 'Session not found'}, 404
         
-        player = Player.query.filter_by(display_name=player_name).first()
-        if not player:
-            return None, None, {'error': 'Player not found'}, 404
+        # Look up by display_name and get game state
+        result = PlayerGameStateCRUD.get_user_and_state_by_display_name(player_name)
+        if not result:
+            # Check if user exists but has no active game state
+            user = UserAccountCRUD.get_by_display_name(player_name)
+            if not user:
+                return None, None, {'error': 'Player not found'}, 404
+            return None, None, {'error': 'Player not in any session'}, 403
         
-        if player.session_id != session_id:
+        user, game_state = result
+        if game_state.session_id != session_id:
             return None, None, {'error': 'Player not in this session'}, 403
         
-        return session, player, None, None
+        return session, (user, game_state), None, None
     
     @staticmethod
     def get_pending_actions(session_id: str) -> Dict[str, Any]:
@@ -59,27 +67,26 @@ class GameplayService:
         if not session:
             return {'error': 'Session not found'}
         
-        players = Player.query.filter_by(session_id=session_id).all()
+        # Get all players in session with their user accounts
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
         
         pending_actions = []
-        for player in players:
-            if player.to_be_initiated and ToBeInitiated.NO_EVENT not in player.to_be_initiated:
+        for user, game_state in player_data:
+            if game_state.to_be_initiated and ToBeInitiated.NO_EVENT not in game_state.to_be_initiated:
                 # Check if player has upgrade details
-                upgrade = ToBeInitiatedUpgradeDetails.query.filter_by(
-                    display_name=player.display_name
-                ).first()
+                upgrade = game_state.upgrade_details
                 is_upgraded = upgrade is not None and (
                     upgrade.assassination_priority or
                     upgrade.kleptomania_steal or
                     upgrade.trigger_identity_crisis
                 )
                 
-                for action in player.to_be_initiated:
+                for action in game_state.to_be_initiated:
                     if action != ToBeInitiated.NO_EVENT:
                         pending_actions.append({
-                            'player_display_name': player.display_name,
+                            'player_display_name': user.display_name,
                             'action': action.value,
-                            'target_display_name': player.target_display_name,
+                            'target_display_name': game_state.target_display_name,
                             'claimed_role': None,
                             'is_upgraded': is_upgraded
                         })
@@ -93,7 +100,7 @@ class GameplayService:
     @staticmethod
     def set_action(
         session: GameSession,
-        player: Player,
+        player_data: Tuple[UserAccount, PlayerGameState],
         action_str: str,
         target_display_name: Optional[str] = None,
         claimed_role: Optional[str] = None,
@@ -102,14 +109,24 @@ class GameplayService:
         """
         Set or update a player's pending action.
         
+        Args:
+            session: Game session
+            player_data: Tuple of (UserAccount, PlayerGameState)
+            action_str: Action to perform
+            target_display_name: Target player's display name (for targeted actions)
+            claimed_role: Role claimed for bluffing
+            upgrade_enabled: Whether to apply upgrade
+        
         Returns:
             Tuple of (response_dict, status_code)
         """
+        user, game_state = player_data
+        
         # Check if in action phase
         if session.current_phase not in [GamePhase.PHASE1_ACTIONS]:
             return {'error': 'Not in action phase'}, 400
         
-        if not player.is_alive:
+        if not game_state.is_alive:
             return {'error': 'Dead players cannot take actions'}, 400
         
         try:
@@ -122,10 +139,12 @@ class GameplayService:
             if not target_display_name:
                 return {'error': f'{action.value} requires a target'}, 400
             
-            target = Player.query.filter_by(display_name=target_display_name).first()
-            if not target or target.session_id != session.session_id:
+            target_state = PlayerGameStateCRUD.get_by_display_name_and_session(
+                target_display_name, session.session_id
+            )
+            if not target_state:
                 return {'error': 'Target not in session'}, 400
-            if not target.is_alive:
+            if not target_state.is_alive:
                 return {'error': 'Cannot target dead player'}, 400
         
         # Set the pending action
@@ -133,17 +152,15 @@ class GameplayService:
         if not initiated:
             return {'error': f'Unknown action: {action.value}'}, 400
         
-        player.to_be_initiated = [initiated]
-        player.target_display_name = target_display_name
+        game_state.to_be_initiated = [initiated]
+        game_state.target_display_name = target_display_name
         
         # Handle upgrade if enabled
         if upgrade_enabled:
-            upgrade = ToBeInitiatedUpgradeDetails.query.filter_by(
-                display_name=player.display_name
-            ).first()
+            upgrade = game_state.upgrade_details
             
             if not upgrade:
-                upgrade = ToBeInitiatedUpgradeDetails(display_name=player.display_name)
+                upgrade = ToBeInitiatedUpgradeDetails(game_state_id=game_state.id)
                 db.session.add(upgrade)
             
             # Set appropriate upgrade based on action
@@ -207,7 +224,7 @@ class GameplayService:
     @staticmethod
     def set_reaction(
         session: GameSession,
-        player: Player,
+        player_data: Tuple[UserAccount, PlayerGameState],
         reaction_type_str: str,
         target_player: str,
         block_with_role: Optional[str] = None
@@ -217,7 +234,7 @@ class GameplayService:
         
         Args:
             session: Game session
-            player: Player making the reaction
+            player_data: Tuple of (UserAccount, PlayerGameState) for reactor
             reaction_type_str: Type of reaction (challenge, block, pass)
             target_player: Player whose action is being reacted to
             block_with_role: Role claimed for blocking (if blocking)
@@ -227,11 +244,13 @@ class GameplayService:
         """
         from app.services.reaction_service import ReactionService
         
+        user, game_state = player_data
+        
         # Check if in reaction phase
         if session.current_phase not in [GamePhase.PHASE2_REACTIONS]:
             return {'error': 'Not in reaction phase'}, 400
         
-        if not player.is_alive:
+        if not game_state.is_alive:
             return {'error': 'Dead players cannot react'}, 400
         
         try:
@@ -240,19 +259,18 @@ class GameplayService:
             return {'error': f"Invalid reaction type: {reaction_type_str}"}, 400
         
         # Get the target player's pending action
-        target = Player.query.filter_by(display_name=target_player).first()
-        if not target:
+        target_state = PlayerGameStateCRUD.get_by_display_name_and_session(
+            target_player, session.session_id
+        )
+        if not target_state:
             return {'error': 'Target player not found'}, 404
         
-        if target.session_id != session.session_id:
-            return {'error': 'Target player not in this session'}, 400
-        
-        if not target.to_be_initiated:
+        if not target_state.to_be_initiated:
             return {'error': 'Target player has no pending action'}, 400
         
         # Get the first non-NO_EVENT action
         target_action = None
-        for action in target.to_be_initiated:
+        for action in target_state.to_be_initiated:
             if action != ToBeInitiated.NO_EVENT:
                 target_action = action
                 break
@@ -264,7 +282,7 @@ class GameplayService:
         try:
             reaction = ReactionService.create_reaction(
                 session_id=session.session_id,
-                reactor_display_name=player.display_name,
+                reactor_display_name=user.display_name,
                 actor_display_name=target_player,
                 target_action=target_action,
                 reaction_type=reaction_type,
@@ -282,20 +300,27 @@ class GameplayService:
     @staticmethod
     def select_cards(
         session: GameSession,
-        player: Player,
+        player_data: Tuple[UserAccount, PlayerGameState],
         cards: List[str]
     ) -> Tuple[Dict, int]:
         """
         Select cards for reveal or exchange.
         
+        Args:
+            session: Game session
+            player_data: Tuple of (UserAccount, PlayerGameState)
+            cards: List of card type strings to select
+        
         Returns:
             Tuple of (response_dict, status_code)
         """
+        user, game_state = player_data
+        
         if not cards:
             return {'error': 'No cards selected'}, 400
         
         # Validate cards are in player's hand
-        player_cards = [c.value for c in (player.card_types or [])]
+        player_cards = [c.value for c in (game_state.card_types or [])]
         for card in cards:
             if card not in player_cards:
                 return {'error': f'Card {card} not in your hand'}, 400
@@ -320,33 +345,35 @@ class GameplayService:
             return {'error': 'Session not found'}
         
         # Get current player for their cards
-        current_player = Player.query.filter_by(display_name=current_player_name).first()
+        current_player_data = PlayerGameStateCRUD.get_user_and_state_by_display_name(current_player_name)
         
         # Build player states
-        players = Player.query.filter_by(session_id=session_id).all()
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
         player_states = []
         
-        for player in players:
+        for user, game_state in player_data:
             action = None
-            if player.to_be_initiated:
-                for a in player.to_be_initiated:
+            if game_state.to_be_initiated:
+                for a in game_state.to_be_initiated:
                     if a != ToBeInitiated.NO_EVENT:
                         action = a.value
                         break
             
             player_states.append({
-                'display_name': player.display_name,
-                'coins': player.coins,
-                'cards_count': len(player.card_types or []),
-                'is_alive': player.is_alive,
+                'display_name': user.display_name,
+                'coins': game_state.coins,
+                'cards_count': len(game_state.card_types or []),
+                'is_alive': game_state.is_alive,
                 'pending_action': action,
-                'target': player.target_display_name
+                'target': game_state.target_display_name
             })
         
         # Get current player's cards (only they can see their own)
         my_cards = []
-        if current_player and current_player.session_id == session_id:
-            my_cards = [c.value for c in (current_player.card_types or [])]
+        if current_player_data:
+            current_user, current_state = current_player_data
+            if current_state.session_id == session_id:
+                my_cards = [c.value for c in (current_state.card_types or [])]
         
         return {
             'session_id': session.session_id,

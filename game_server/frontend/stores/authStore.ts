@@ -1,25 +1,26 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Player, AuthResponse, LoginRequest } from '@/types';
+import { UserInfo } from '@/types';
 import { STORAGE_KEYS } from '@/lib/constants';
+import { getSession, logoutUser } from '@/lib/api/auth';
 import log from '@/lib/logger';
 
 interface AuthState {
   // State
-  accessToken: string | null;
-  refreshToken: string | null;
-  player: Player | null;
+  user: UserInfo | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isHydrated: boolean;
   error: string | null;
 
   // Actions
-  setTokens: (accessToken: string, refreshToken: string) => void;
-  setPlayer: (player: Player) => void;
+  setUser: (user: UserInfo | null) => void;
   setLoading: (loading: boolean) => void;
+  setHydrated: (hydrated: boolean) => void;
   setError: (error: string | null) => void;
-  login: (response: AuthResponse, player?: Player) => void;
-  logout: () => void;
+  login: (user: UserInfo) => void;
+  logout: () => Promise<void>;
+  checkSession: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -27,30 +28,20 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       // Initial state
-      accessToken: null,
-      refreshToken: null,
-      player: null,
+      user: null,
       isAuthenticated: false,
-      isLoading: false,
+      isLoading: true,  // Start loading until session checked
+      isHydrated: false,
       error: null,
 
       // Actions
-      setTokens: (accessToken, refreshToken) => {
-        log.debug('Setting tokens');
-        set({ 
-          accessToken, 
-          refreshToken, 
-          isAuthenticated: true,
-          error: null,
-        });
-      },
-
-      setPlayer: (player) => {
-        log.debug('Setting player:', player.display_name);
-        set({ player });
+      setUser: (user) => {
+        set({ user, isAuthenticated: !!user });
       },
 
       setLoading: (isLoading) => set({ isLoading }),
+
+      setHydrated: (isHydrated) => set({ isHydrated }),
 
       setError: (error) => {
         if (error) {
@@ -59,28 +50,54 @@ export const useAuthStore = create<AuthState>()(
         set({ error, isLoading: false });
       },
 
-      login: (response, player) => {
-        log.info('User logged in');
+      login: (user) => {
+        log.info('User logged in:', user.display_name);
         set({
-          accessToken: response.access_token,
-          refreshToken: response.refresh_token,
-          player: player || null,
+          user,
           isAuthenticated: true,
           isLoading: false,
           error: null,
         });
       },
 
-      logout: () => {
+      logout: async () => {
+        try {
+          await logoutUser();
+        } catch (e) {
+          log.warn('Logout API call failed:', e);
+        }
         log.info('User logged out');
         set({
-          accessToken: null,
-          refreshToken: null,
-          player: null,
+          user: null,
           isAuthenticated: false,
           isLoading: false,
           error: null,
         });
+      },
+
+      checkSession: async () => {
+        log.debug('Checking session with server');
+        set({ isLoading: true });
+        
+        try {
+          const user = await getSession();
+          set({
+            user,
+            isAuthenticated: !!user,
+            isLoading: false,
+          });
+          
+          if (user) {
+            log.debug('Session valid for:', user.display_name);
+          }
+        } catch (error) {
+          log.error('Session check failed:', error);
+          set({
+            user: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
+        }
       },
 
       clearError: () => set({ error: null }),
@@ -88,17 +105,22 @@ export const useAuthStore = create<AuthState>()(
     {
       name: STORAGE_KEYS.AUTH,
       partialize: (state) => ({
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-        player: state.player,
-        isAuthenticated: state.isAuthenticated,
+        // Only persist user info for quick UI hydration
+        // Actual auth is validated via cookie on checkSession
+        user: state.user,
       }),
+      onRehydrateStorage: () => (state) => {
+        state?.setHydrated(true);
+      },
     }
   )
 );
 
 // Selector hooks for common use cases
 export const useIsAuthenticated = () => useAuthStore((state) => state.isAuthenticated);
-export const usePlayer = () => useAuthStore((state) => state.player);
+export const useUser = () => useAuthStore((state) => state.user);
 export const useAuthError = () => useAuthStore((state) => state.error);
 export const useAuthLoading = () => useAuthStore((state) => state.isLoading);
+
+// Legacy compatibility
+export const usePlayer = () => useAuthStore((state) => state.user);

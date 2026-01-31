@@ -14,8 +14,10 @@ import httpx
 
 from app.constants import PlayerType, SocialMediaPlatform
 from app.extensions import db
-from app.models.postgres_sql_db_models import Player, OAuthIdentity
+from app.models.postgres_sql_db_models import UserAccount, OAuthIdentity
+from app.crud import UserAccountCRUD, OAuthIdentityCRUD
 from app.services.auth_service import AuthService
+from app.services.user_account_service import UserAccountService
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +101,7 @@ class OAuthService:
         return f"{cls.DISCORD_AUTH_URL}?{urlencode(params)}"
     
     @classmethod
-    async def handle_discord_callback(cls, code: str) -> Tuple[Optional[Player], Optional[str], Optional[str]]:
+    async def handle_discord_callback(cls, code: str) -> Tuple[Optional[UserAccount], Optional[str], Optional[str]]:
         """
         Handle Discord OAuth2 callback.
         
@@ -107,7 +109,7 @@ class OAuthService:
             code: Authorization code from Discord
         
         Returns:
-            Tuple of (player, access_token, error_message)
+            Tuple of (user, access_token, error_message)
         """
         # Exchange code for access token
         token_data = {
@@ -199,7 +201,7 @@ class OAuthService:
         return f"{cls.GOOGLE_AUTH_URL}?{urlencode(params)}"
     
     @classmethod
-    async def handle_google_callback(cls, code: str) -> Tuple[Optional[Player], Optional[str], Optional[str]]:
+    async def handle_google_callback(cls, code: str) -> Tuple[Optional[UserAccount], Optional[str], Optional[str]]:
         """
         Handle Google OAuth2 callback.
         
@@ -207,7 +209,7 @@ class OAuthService:
             code: Authorization code from Google
         
         Returns:
-            Tuple of (player, access_token, error_message)
+            Tuple of (user, access_token, error_message)
         """
         token_data = {
             "client_id": cls.GOOGLE_CLIENT_ID,
@@ -287,7 +289,7 @@ class OAuthService:
         return f"{cls.SLACK_AUTH_URL}?{urlencode(params)}"
     
     @classmethod
-    async def handle_slack_callback(cls, code: str) -> Tuple[Optional[Player], Optional[str], Optional[str]]:
+    async def handle_slack_callback(cls, code: str) -> Tuple[Optional[UserAccount], Optional[str], Optional[str]]:
         """
         Handle Slack OAuth2 callback.
         
@@ -295,7 +297,7 @@ class OAuthService:
             code: Authorization code from Slack
         
         Returns:
-            Tuple of (player, access_token, error_message)
+            Tuple of (user, access_token, error_message)
         """
         token_data = {
             "client_id": cls.SLACK_CLIENT_ID,
@@ -356,7 +358,7 @@ class OAuthService:
             return None, None, str(e)
     
     # =============================================
-    # Player Management
+    # User Account Management
     # =============================================
     
     @classmethod
@@ -368,13 +370,13 @@ class OAuthService:
         provider_email: Optional[str],
         provider_avatar_url: Optional[str],
         platform: SocialMediaPlatform
-    ) -> Player:
+    ) -> UserAccount:
         """
-        Get existing player or create new one from OAuth info.
+        Get existing user or create new one from OAuth info.
         
         This method implements email auto-matching: if the OAuth provider
         returns an email that matches an existing OAuthIdentity, we link
-        to that player instead of creating a new one.
+        to that user instead of creating a new one.
         
         Args:
             provider: OAuth provider name ("discord", "google", "slack")
@@ -385,7 +387,7 @@ class OAuthService:
             platform: Social media platform enum
         
         Returns:
-            Player object
+            UserAccount object
         """
         # Check if OAuth identity already exists (same provider + user ID)
         oauth_identity = OAuthIdentity.query.filter_by(
@@ -402,13 +404,13 @@ class OAuthService:
             oauth_identity.provider_avatar_url = provider_avatar_url
             db.session.commit()
             
-            logger.info(f"OAuth login: {provider}:{provider_user_id} -> {oauth_identity.player_display_name}")
-            return oauth_identity.player
+            logger.info(f"OAuth login: {provider}:{provider_user_id} -> {oauth_identity.user.display_name}")
+            return oauth_identity.user
         
         # =============================================
         # Email Auto-Match: Check if email exists in any OAuthIdentity
         # =============================================
-        matched_player = None
+        matched_user = None
         if provider_email:
             existing_identity = OAuthIdentity.query.filter_by(
                 provider_email=provider_email,
@@ -416,16 +418,16 @@ class OAuthService:
             ).first()
             
             if existing_identity:
-                matched_player = existing_identity.player
+                matched_user = existing_identity.user
                 logger.info(
                     f"Email auto-match: {provider_email} found in "
-                    f"{existing_identity.provider} -> linking to {matched_player.display_name}"
+                    f"{existing_identity.provider} -> linking to {matched_user.display_name}"
                 )
         
-        if matched_player:
-            # Link this OAuth identity to the matched player
+        if matched_user:
+            # Link this OAuth identity to the matched user
             oauth_identity = OAuthIdentity(
-                player_display_name=matched_player.display_name,
+                user_id=matched_user.user_id,
                 provider=provider,
                 provider_user_id=provider_user_id,
                 provider_username=provider_username,
@@ -435,27 +437,27 @@ class OAuthService:
             db.session.add(oauth_identity)
             
             # Add platform to loyalty tracking if not already present
-            cls._add_platform_to_player(matched_player, platform)
+            UserAccountService.add_platform(matched_user.user_id, platform)
             
             db.session.commit()
             
-            logger.info(f"OAuth auto-linked: {provider}:{provider_user_id} -> {matched_player.display_name}")
-            return matched_player
+            logger.info(f"OAuth auto-linked: {provider}:{provider_user_id} -> {matched_user.display_name}")
+            return matched_user
         
         # =============================================
-        # No email match - check display name or create new player
+        # No email match - check display name or create new user
         # =============================================
         
         # Generate display name from provider username or email
         display_name = cls._generate_display_name(provider, provider_username, provider_email)
         
-        # Check if player with this display name exists
-        existing_player = Player.query.filter_by(display_name=display_name).first()
+        # Check if user with this display name exists
+        existing_user = UserAccountCRUD.get_by_display_name(display_name)
         
-        if existing_player:
-            # Link OAuth identity to existing player (display name match)
+        if existing_user:
+            # Link OAuth identity to existing user (display name match)
             oauth_identity = OAuthIdentity(
-                player_display_name=display_name,
+                user_id=existing_user.user_id,
                 provider=provider,
                 provider_user_id=provider_user_id,
                 provider_username=provider_username,
@@ -465,30 +467,27 @@ class OAuthService:
             db.session.add(oauth_identity)
             
             # Add platform to loyalty tracking if not already present
-            cls._add_platform_to_player(existing_player, platform)
+            UserAccountService.add_platform(existing_user.user_id, platform)
             
             db.session.commit()
             
             logger.info(f"OAuth linked by display name: {provider}:{provider_user_id} -> {display_name}")
-            return existing_player
+            return existing_user
         
         # =============================================
-        # Create new player
+        # Create new user account
         # =============================================
-        player = Player(
+        user = UserAccountService.register_oauth(
+            user_name=display_name,  # Use display_name as user_name for OAuth users
             display_name=display_name,
-            social_media_platform_display_name=provider_username or display_name,
-            social_media_platforms=[platform],  # Track platform for loyalty bonuses
-            preferred_social_media_platform=platform,  # First platform becomes preferred
-            player_type=PlayerType.HUMAN,
-            password_hash=None,  # No password for OAuth users
-            game_privileges=[]
+            platform=platform,
+            platform_display_name=provider_username or display_name,
+            email=provider_email
         )
-        db.session.add(player)
         
         # Create OAuth identity
         oauth_identity = OAuthIdentity(
-            player_display_name=display_name,
+            user_id=user.user_id,
             provider=provider,
             provider_user_id=provider_user_id,
             provider_username=provider_username,
@@ -502,8 +501,8 @@ class OAuthService:
         
         db.session.commit()
         
-        logger.info(f"OAuth new player: {provider}:{provider_user_id} -> {display_name}")
-        return player
+        logger.info(f"OAuth new user: {provider}:{provider_user_id} -> {display_name}")
+        return user
     
     @classmethod
     def _check_and_flag_similar_username(
@@ -516,7 +515,7 @@ class OAuthService:
         This is for developer review, not user-facing.
         
         Args:
-            new_display_name: The new player's display name
+            new_display_name: The new user's display name
             provider_username: The username from the OAuth provider
         """
         from app.models.postgres_sql_db_models import AccountFlag
@@ -525,73 +524,49 @@ class OAuthService:
         if not provider_username:
             return
         
-        # Find players with similar display names
+        # Find users with similar display names
         # We use a simple similarity check here
-        all_players = Player.query.all()
+        all_users = UserAccountCRUD.get_active_accounts()
         
-        for existing_player in all_players:
-            if existing_player.display_name == new_display_name:
+        for existing_user in all_users:
+            if existing_user.display_name == new_display_name:
                 continue
             
             # Check similarity ratio
             ratio = SequenceMatcher(
                 None,
                 new_display_name.lower(),
-                existing_player.display_name.lower()
+                existing_user.display_name.lower()
             ).ratio()
             
             # Also check against social media display name
+            existing_sm_name = existing_user.social_media_platform_display_name or ""
             ratio2 = SequenceMatcher(
                 None,
                 new_display_name.lower(),
-                existing_player.social_media_platform_display_name.lower()
-            ).ratio()
+                existing_sm_name.lower()
+            ).ratio() if existing_sm_name else 0
             
             max_ratio = max(ratio, ratio2)
             
             # Flag if similarity is above 80%
             if max_ratio >= 0.8:
                 flag = AccountFlag(
-                    player_display_name=new_display_name,
+                    user_id=UserAccountCRUD.get_by_display_name(new_display_name).user_id,
                     flag_type="similar_username",
-                    related_player=existing_player.display_name,
+                    related_user_id=existing_user.user_id,
                     details={
                         "similarity_score": round(max_ratio, 3),
                         "new_username": provider_username,
-                        "existing_username": existing_player.social_media_platform_display_name
+                        "existing_username": existing_sm_name
                     },
                     status="pending"
                 )
                 db.session.add(flag)
                 logger.info(
                     f"Flagged similar username: {new_display_name} ~ "
-                    f"{existing_player.display_name} (similarity: {max_ratio:.2f})"
+                    f"{existing_user.display_name} (similarity: {max_ratio:.2f})"
                 )
-    
-    @classmethod
-    def _add_platform_to_player(cls, player: Player, platform: SocialMediaPlatform) -> bool:
-        """
-        Add a platform to player's loyalty tracking if not already present.
-        
-        Args:
-            player: The player to update
-            platform: The platform to add
-        
-        Returns:
-            True if platform was added, False if already present
-        """
-        current_platforms = player.social_media_platforms or []
-        
-        if platform not in current_platforms:
-            # Add platform to the array
-            player.social_media_platforms = current_platforms + [platform]
-            logger.info(
-                f"Platform added to {player.display_name}: {platform.value} "
-                f"(now {len(player.social_media_platforms)} platforms)"
-            )
-            return True
-        
-        return False
     
     @staticmethod
     def _generate_display_name(
@@ -599,7 +574,7 @@ class OAuthService:
         username: Optional[str],
         email: Optional[str]
     ) -> str:
-        """Generate a unique display name for a new player."""
+        """Generate a unique display name for a new user."""
         if username:
             base_name = username
         elif email:
@@ -614,7 +589,7 @@ class OAuthService:
         # Check if name exists, if so add a suffix
         original_name = clean_name
         counter = 1
-        while Player.query.filter_by(display_name=clean_name).first():
+        while UserAccountCRUD.display_name_exists(clean_name):
             clean_name = f"{original_name}_{counter}"
             counter += 1
         
@@ -625,28 +600,28 @@ class OAuthService:
     # =============================================
     
     @classmethod
-    def create_tokens_for_player(cls, player: Player) -> Tuple[str, str]:
+    def create_tokens_for_user(cls, user: UserAccount) -> Tuple[str, str]:
         """
-        Create JWT access and refresh tokens for a player.
+        Create JWT access and refresh tokens for a user.
         
         Args:
-            player: Player object
+            user: UserAccount object
         
         Returns:
             Tuple of (access_token, refresh_token)
         """
-        access_token = AuthService.create_access_token(player)
-        refresh_token = AuthService.create_refresh_token(player)
+        access_token = AuthService.create_access_token(user)
+        refresh_token = AuthService.create_refresh_token(user)
         return access_token, refresh_token
     
     @classmethod
-    def get_player_by_provider(
+    def get_user_by_provider(
         cls,
         provider: str,
         provider_user_id: str
-    ) -> Tuple[Optional[Player], Optional[str]]:
+    ) -> Tuple[Optional[UserAccount], Optional[str]]:
         """
-        Get player by OAuth provider identity.
+        Get user by OAuth provider identity.
         
         Used by Discord/Slack bots to look up a user's linked account.
         
@@ -655,8 +630,8 @@ class OAuthService:
             provider_user_id: User ID from the provider
         
         Returns:
-            Tuple of (player, error_message)
-            Returns (player, None) if found
+            Tuple of (user, error_message)
+            Returns (user, None) if found
             Returns (None, error) if not found
         """
         oauth_identity = OAuthIdentity.query.filter_by(
@@ -672,5 +647,5 @@ class OAuthService:
         oauth_identity.last_login_at = datetime.now(timezone.utc)
         db.session.commit()
         
-        return oauth_identity.player, None
+        return oauth_identity.user, None
 

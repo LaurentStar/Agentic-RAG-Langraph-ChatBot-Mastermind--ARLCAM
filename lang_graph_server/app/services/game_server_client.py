@@ -42,18 +42,29 @@ class GameServerClient:
         self._token_expires_at: Optional[datetime] = None
         
         # Agent credentials (set per-agent)
+        # Note: user_name is used for login, display_name is the public name
+        self._agent_user_name: Optional[str] = None
         self._agent_display_name: Optional[str] = None
         self._agent_password: Optional[str] = None
     
-    def configure_agent(self, display_name: str, password: str) -> None:
+    def configure_agent(
+        self,
+        display_name: str,
+        password: str,
+        user_name: Optional[str] = None
+    ) -> None:
         """
         Configure credentials for an LLM agent.
         
         Args:
-            display_name: Agent's display name
+            display_name: Agent's display name (public identifier)
             password: Agent's password
+            user_name: Agent's login username (defaults to display_name for backwards compat)
         """
         self._agent_display_name = display_name
+        # Use user_name if provided, otherwise fall back to display_name
+        # (for OAuth users, user_name == display_name)
+        self._agent_user_name = user_name or display_name
         self._agent_password = password
         # Clear existing tokens
         self._access_token = None
@@ -102,7 +113,7 @@ class GameServerClient:
                 return True
         
         # Login with credentials
-        if self._agent_display_name and self._agent_password:
+        if self._agent_user_name and self._agent_password:
             return self._login()
         
         return False
@@ -114,7 +125,7 @@ class GameServerClient:
                 response = client.post(
                     "/auth/login",
                     json={
-                        "display_name": self._agent_display_name,
+                        "user_name": self._agent_user_name,
                         "password": self._agent_password
                     }
                 )

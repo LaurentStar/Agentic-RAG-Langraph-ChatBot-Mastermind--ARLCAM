@@ -8,6 +8,7 @@ Follows the Flask extension pattern - declare here, initialize in create_app().
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import DeclarativeBase
 from flask_restx import Api
+from flask_cors import CORS
 
 
 #=======================#
@@ -50,3 +51,10 @@ api = Api(
     authorizations=authorizations,
     security='Bearer'
 )
+
+
+#================#
+# CORS EXTENSION #
+#================#
+# Configured in create_app() with allowed origins
+cors = CORS()

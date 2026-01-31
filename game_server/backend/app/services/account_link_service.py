@@ -14,7 +14,8 @@ from typing import Optional, Tuple, List, Dict, Any
 from urllib.parse import urlencode
 
 from app.extensions import db
-from app.models.postgres_sql_db_models import AccountLinkRequest, OAuthIdentity, Player
+from app.models.postgres_sql_db_models import AccountLinkRequest, OAuthIdentity, UserAccount
+from app.crud import UserAccountCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -66,15 +67,15 @@ class AccountLinkService:
         if target_provider not in valid_providers:
             return None, f"Invalid provider. Must be one of: {valid_providers}"
         
-        # Get the player
-        player = Player.query.filter_by(display_name=player_display_name).first()
-        if not player:
+        # Get the user
+        user = UserAccountCRUD.get_by_display_name(player_display_name)
+        if not user:
             return None, f"Player {player_display_name} not found"
         
         # Get primary email from existing OAuth identities
         if not primary_email:
             primary_identity = OAuthIdentity.query.filter_by(
-                player_display_name=player_display_name,
+                user_id=user.user_id,
                 deleted_at=None
             ).first()
             

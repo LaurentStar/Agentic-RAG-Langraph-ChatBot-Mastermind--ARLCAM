@@ -2,13 +2,15 @@
 Game Server APIs.
 
 Organized into domains:
-- auth/    - Authentication (login, token refresh, OAuth)
-- admin/   - Privileged operations (session/player management)
-- account/ - Account management (linking, identities)
-- game/    - Gameplay (actions, reactions, state, sessions)
-- players/ - Player self-service (registration, profile)
-- system/  - Infrastructure (health checks)
-- ops/     - Developer operations (debugging, monitoring)
+- auth/     - Authentication (login, token refresh, OAuth)
+- admin/    - Privileged operations (session/player management)
+- account/  - Account management (linking, identities)
+- users/    - User account management (registration, account info)
+- profiles/ - Player game profiles and statistics
+- game/     - Gameplay (actions, reactions, state, sessions)
+- players/  - DEPRECATED (endpoints moved to /users and /profiles)
+- system/   - Infrastructure (health checks)
+- ops/      - Developer operations (debugging, monitoring)
 """
 
 # Auth
@@ -20,10 +22,16 @@ from app.apis.admin import admin_session_ns, admin_player_ns, admin_flags_ns
 # Account
 from app.apis.account import link_ns, identity_ns
 
+# Users
+from app.apis.users import user_ns
+
+# Profiles
+from app.apis.profiles import profile_ns
+
 # Game
 from app.apis.game import actions_ns, chat_ns, reactions_ns, state_ns, game_session_ns
 
-# Players
+# Players (DEPRECATED)
 from app.apis.players import player_ns
 
 # System
@@ -43,13 +51,17 @@ __all__ = [
     # Account
     "link_ns",
     "identity_ns",
+    # Users
+    "user_ns",
+    # Profiles
+    "profile_ns",
     # Game
     "actions_ns",
     "chat_ns",
     "reactions_ns",
     "state_ns",
     "game_session_ns",
-    # Players
+    # Players (DEPRECATED)
     "player_ns",
     # System
     "health_ns",

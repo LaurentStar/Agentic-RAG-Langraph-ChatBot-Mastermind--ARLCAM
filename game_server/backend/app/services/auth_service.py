@@ -7,14 +7,16 @@ Handles JWT token generation, validation, and password hashing.
 import os
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
+from uuid import UUID
 
 import bcrypt
 import jwt
 from flask import current_app, g, request
 
 from app.constants import PlayerType
-from app.models.postgres_sql_db_models import Player
+from app.models.postgres_sql_db_models import UserAccount
+from app.crud import UserAccountCRUD
 
 
 class AuthService:
@@ -40,14 +42,53 @@ class AuthService:
         )
     
     @classmethod
-    def create_access_token(cls, player: Player) -> str:
-        """Create a JWT access token for a player."""
+    def authenticate(cls, user_name: str, password: str) -> Optional[UserAccount]:
+        """
+        Authenticate a user with username and password.
+        
+        Args:
+            user_name: Login username
+            password: Plain text password
+        
+        Returns:
+            UserAccount if authentication successful, None otherwise
+        """
+        user = UserAccountCRUD.get_by_user_name(user_name)
+        if not user or not user.password_hash:
+            return None
+        
+        if not user.is_active:
+            return None  # Account suspended/banned/deactivated
+        
+        if cls.verify_password(password, user.password_hash):
+            # Update last login time
+            UserAccountCRUD.update_last_login(user.user_id)
+            return user
+        
+        return None
+    
+    @classmethod
+    def create_access_token(cls, user: UserAccount) -> str:
+        """
+        Create a JWT access token for a user.
+        
+        Token includes:
+        - sub: user_id (UUID) - immutable identifier
+        - user_name: login identifier
+        - display_name: public display name
+        - player_type: human/llm_agent/admin
+        - privileges: list of game privileges
+        - token_version: for session invalidation
+        """
         secret_key = current_app.config.get('JWT_SECRET_KEY', 'dev-secret-change-me')
         
         payload = {
-            'sub': player.display_name,
-            'player_type': player.player_type.value,
-            'privileges': [p.value for p in (player.game_privileges or [])],
+            'sub': str(user.user_id),
+            'user_name': user.user_name,
+            'display_name': user.display_name,
+            'player_type': user.player_type.value,
+            'privileges': [p.value for p in (user.game_privileges or [])],
+            'token_version': user.token_version,
             'iat': datetime.now(timezone.utc),
             'exp': datetime.now(timezone.utc) + timedelta(hours=cls.JWT_EXPIRY_HOURS),
             'type': 'access'
@@ -56,12 +97,12 @@ class AuthService:
         return jwt.encode(payload, secret_key, algorithm=cls.JWT_ALGORITHM)
     
     @classmethod
-    def create_refresh_token(cls, player: Player) -> str:
-        """Create a JWT refresh token for a player."""
+    def create_refresh_token(cls, user: UserAccount) -> str:
+        """Create a JWT refresh token for a user."""
         secret_key = current_app.config.get('JWT_SECRET_KEY', 'dev-secret-change-me')
         
         payload = {
-            'sub': player.display_name,
+            'sub': str(user.user_id),
             'iat': datetime.now(timezone.utc),
             'exp': datetime.now(timezone.utc) + timedelta(days=cls.JWT_REFRESH_EXPIRY_DAYS),
             'type': 'refresh'
@@ -93,9 +134,57 @@ class AuthService:
             return False, None, f"Invalid token: {str(e)}"
     
     @classmethod
-    def get_current_player_name(cls) -> Optional[str]:
-        """Get the current player's display name from the request context."""
-        return getattr(g, 'current_player_name', None)
+    def verify_access_token(cls, token: str) -> Optional[dict]:
+        """
+        Verify an access token and return the payload.
+        
+        Returns:
+            Token payload dict if valid, None otherwise
+        """
+        is_valid, payload, _ = cls.verify_token(token, 'access')
+        return payload if is_valid else None
+    
+    @classmethod
+    def get_user_from_token(cls, token: str) -> Optional[UserAccount]:
+        """
+        Get user account from an access token.
+        
+        Returns:
+            UserAccount if token is valid and user exists, None otherwise
+        """
+        payload = cls.verify_access_token(token)
+        if not payload:
+            return None
+        
+        user_id = payload.get('sub')
+        if not user_id:
+            return None
+        
+        try:
+            return UserAccountCRUD.get_by_id(UUID(user_id))
+        except (ValueError, TypeError):
+            return None
+    
+    @classmethod
+    def get_current_user_id(cls) -> Optional[UUID]:
+        """Get the current user's UUID from the request context."""
+        user_id_str = getattr(g, 'current_user_id', None)
+        if user_id_str:
+            try:
+                return UUID(user_id_str)
+            except (ValueError, TypeError):
+                return None
+        return None
+    
+    @classmethod
+    def get_current_user_name(cls) -> Optional[str]:
+        """Get the current user's username from the request context."""
+        return getattr(g, 'current_user_name', None)
+    
+    @classmethod
+    def get_current_display_name(cls) -> Optional[str]:
+        """Get the current user's display name from the request context."""
+        return getattr(g, 'current_display_name', None)
     
     @classmethod
     def get_current_player_type(cls) -> Optional[PlayerType]:
@@ -104,27 +193,65 @@ class AuthService:
         if player_type:
             return PlayerType(player_type)
         return None
+    
+    # Legacy compatibility - will be deprecated
+    @classmethod
+    def get_current_player_name(cls) -> Optional[str]:
+        """Legacy: Get display name. Use get_current_display_name instead."""
+        return cls.get_current_display_name()
 
 
 def jwt_required(f):
-    """Decorator to require JWT authentication."""
+    """
+    Decorator to require JWT authentication.
+    
+    Checks for token in order:
+    1. Cookie 'access_token' (browser clients)
+    2. Authorization header 'Bearer <token>' (service clients)
+    
+    Also validates token_version to support session invalidation.
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
-        auth_header = request.headers.get('Authorization', '')
+        token = None
         
-        if not auth_header.startswith('Bearer '):
-            return {'error': 'Missing or invalid Authorization header'}, 401
+        # 1. Check cookie first (browser requests)
+        token = request.cookies.get('access_token')
         
-        token = auth_header[7:]  # Remove 'Bearer ' prefix
+        # 2. Fall back to Authorization header (API/service calls)
+        if not token:
+            auth_header = request.headers.get('Authorization', '')
+            if auth_header.startswith('Bearer '):
+                token = auth_header[7:]
+        
+        if not token:
+            return {'error': 'Missing authentication'}, 401
+        
         is_valid, payload, error = AuthService.verify_token(token)
         
         if not is_valid:
             return {'error': error}, 401
         
-        # Store player info in request context
-        g.current_player_name = payload.get('sub')
+        # Validate token version (for session invalidation)
+        token_version = payload.get('token_version')
+        if token_version is not None:
+            user_id = payload.get('sub')
+            try:
+                user = UserAccountCRUD.get_by_id(UUID(user_id))
+                if user and user.token_version != token_version:
+                    return {'error': 'Session invalidated. Please log in again.'}, 401
+            except (ValueError, TypeError):
+                pass  # Let it proceed, user lookup will fail later if needed
+        
+        # Store user info in request context
+        g.current_user_id = payload.get('sub')
+        g.current_user_name = payload.get('user_name')
+        g.current_display_name = payload.get('display_name')
         g.current_player_type = payload.get('player_type')
         g.current_player_privileges = payload.get('privileges', [])
+        
+        # Legacy compatibility
+        g.current_player_name = payload.get('display_name')
         
         return f(*args, **kwargs)
     
@@ -220,4 +347,3 @@ def ops_key_required(f):
         return f(*args, **kwargs)
     
     return decorated
-

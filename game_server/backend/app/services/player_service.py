@@ -1,19 +1,34 @@
 """
 Player Service.
 
-Handles player registration, retrieval, and management.
+Handles player game state management within sessions.
+For account operations, use UserAccountService instead.
+
+This service is transitioning from the old Player model to the new
+three-tier architecture (UserAccount, PlayerProfile, PlayerGameState).
 """
 
 from typing import List, Optional
+from uuid import UUID
 
 from app.constants import GamePrivilege, PlayerStatus, PlayerType, SocialMediaPlatform
-from app.extensions import db
-from app.models.postgres_sql_db_models import AgentProfile, Player
+from app.crud import UserAccountCRUD, PlayerProfileCRUD, PlayerGameStateCRUD
+from app.models.postgres_sql_db_models import UserAccount, PlayerGameState
 from app.services.auth_service import AuthService
+from app.services.user_account_service import UserAccountService
 
 
 class PlayerService:
-    """Service for player management."""
+    """
+    Service for player management.
+    
+    NOTE: This service is being refactored. For account operations,
+    use UserAccountService. This service now focuses on game state.
+    """
+    
+    # =============================================
+    # Account Operations (Delegated to UserAccountService)
+    # =============================================
     
     @staticmethod
     def register_player(
@@ -23,48 +38,25 @@ class PlayerService:
         platform: SocialMediaPlatform,
         player_type: PlayerType = PlayerType.HUMAN,
         game_privileges: Optional[List[GamePrivilege]] = None
-    ) -> Player:
+    ) -> UserAccount:
         """
         Register a new player.
         
-        Args:
-            display_name: Unique player identifier
-            password: Plain text password (will be hashed)
-            social_media_platform_display_name: Username on platform
-            platform: Platform enum value (added to platforms list and set as preferred)
-            player_type: Type of player (human, llm_agent, admin)
-            game_privileges: List of privileges for non-admin players
-        
-        Returns:
-            Created Player object
-        
-        Raises:
-            ValueError: If player already exists
+        DEPRECATED: Use UserAccountService.register() instead.
+        This method is kept for backward compatibility.
         """
-        # Check if player exists
-        existing = Player.query.filter_by(display_name=display_name).first()
-        if existing:
-            raise ValueError(f"Player '{display_name}' already exists")
+        # Generate user_name from display_name
+        user_name = display_name.lower().replace(' ', '_')
         
-        # Create player with platform loyalty fields
-        player = Player(
+        return UserAccountService.register(
+            user_name=user_name,
             display_name=display_name,
-            password_hash=AuthService.hash_password(password),
-            social_media_platform_display_name=social_media_platform_display_name,
-            social_media_platforms=[platform],
-            preferred_social_media_platform=platform,
+            password=password,
+            platform=platform,
+            platform_display_name=social_media_platform_display_name,
             player_type=player_type,
-            game_privileges=game_privileges or [],
-            player_statuses=[PlayerStatus.WAITING],
-            coins=2,
-            card_types=[],
-            to_be_initiated=[]
+            game_privileges=game_privileges
         )
-        
-        db.session.add(player)
-        db.session.commit()
-        
-        return player
     
     @staticmethod
     def register_llm_agent(
@@ -74,77 +66,64 @@ class PlayerService:
         platform: SocialMediaPlatform,
         personality_type: str = "balanced",
         modulators: Optional[dict] = None
-    ) -> Player:
+    ) -> UserAccount:
         """
         Register a new LLM agent with profile.
         
-        Args:
-            display_name: Unique agent identifier
-            password: API key or password for agent authentication
-            social_media_platform_display_name: Bot username on platform
-            platform: Platform enum value
-            personality_type: Agent personality style
-            modulators: Dict of modulator values (aggression, bluff_confidence, etc.)
-        
-        Returns:
-            Created Player object with AgentProfile
+        DEPRECATED: Use UserAccountService.register_agent() instead.
         """
-        # Create player first
-        player = PlayerService.register_player(
+        user_name = display_name.lower().replace(' ', '_')
+        
+        return UserAccountService.register_agent(
+            user_name=user_name,
             display_name=display_name,
             password=password,
-            social_media_platform_display_name=social_media_platform_display_name,
             platform=platform,
-            player_type=PlayerType.LLM_AGENT
-        )
-        
-        # Create agent profile
-        mods = modulators or {}
-        agent_profile = AgentProfile(
-            display_name=display_name,
             personality_type=personality_type,
-            aggression=mods.get('aggression', 0.5),
-            bluff_confidence=mods.get('bluff_confidence', 0.5),
-            challenge_tendency=mods.get('challenge_tendency', 0.5),
-            block_tendency=mods.get('block_tendency', 0.5),
-            risk_tolerance=mods.get('risk_tolerance', 0.5),
-            llm_reliance=mods.get('llm_reliance', 0.5),
-            model_name=mods.get('model_name', 'gpt-4'),
-            temperature=mods.get('temperature', 0.7)
+            modulators=modulators
         )
-        
-        db.session.add(agent_profile)
-        db.session.commit()
-        
-        return player
     
     @staticmethod
-    def get_player(display_name: str) -> Optional[Player]:
-        """Get a player by display name."""
-        return Player.query.filter_by(display_name=display_name).first()
+    def get_player(display_name: str) -> Optional[UserAccount]:
+        """
+        Get a player by display name.
+        
+        NOTE: Returns UserAccount now, not legacy Player model.
+        """
+        return UserAccountCRUD.get_by_display_name(display_name)
     
     @staticmethod
-    def get_player_or_404(display_name: str) -> Player:
-        """Get a player by display name or raise 404."""
-        player = PlayerService.get_player(display_name)
-        if not player:
+    def get_player_by_id(user_id: UUID) -> Optional[UserAccount]:
+        """Get a player by user_id."""
+        return UserAccountCRUD.get_by_id(user_id)
+    
+    @staticmethod
+    def get_player_or_404(display_name: str) -> UserAccount:
+        """Get a player by display name or raise error."""
+        user = PlayerService.get_player(display_name)
+        if not user:
             raise ValueError(f"Player '{display_name}' not found")
-        return player
+        return user
     
     @staticmethod
-    def authenticate(display_name: str, password: str) -> Optional[Player]:
+    def authenticate(display_name: str, password: str) -> Optional[UserAccount]:
         """
         Authenticate a player with display name and password.
         
-        Returns:
-            Player if authentication successful, None otherwise
+        NOTE: For new code, use AuthService.authenticate() with user_name instead.
+        This method is kept for backward compatibility during transition.
         """
-        player = PlayerService.get_player(display_name)
-        if not player or not player.password_hash:
-            return None
+        # First try display_name as user_name
+        user = AuthService.authenticate(display_name, password)
+        if user:
+            return user
         
-        if AuthService.verify_password(password, player.password_hash):
-            return player
+        # Then try finding by display_name and authenticating
+        user = UserAccountCRUD.get_by_display_name(display_name)
+        if user and user.password_hash and user.is_active:
+            if AuthService.verify_password(password, user.password_hash):
+                UserAccountCRUD.update_last_login(user.user_id)
+                return user
         
         return None
     
@@ -153,50 +132,40 @@ class PlayerService:
         player_type: Optional[PlayerType] = None,
         session_id: Optional[str] = None,
         is_alive: Optional[bool] = None
-    ) -> List[Player]:
+    ) -> List[UserAccount]:
         """
         List players with optional filters.
         
-        Args:
-            player_type: Filter by player type
-            session_id: Filter by game session
-            is_alive: Filter by alive status
-        
-        Returns:
-            List of matching players
+        NOTE: When session_id is provided, this now queries game state
+        and returns the associated user accounts.
         """
-        query = Player.query
+        if session_id:
+            # Get game states for session, return associated accounts
+            game_states = PlayerGameStateCRUD.get_by_session(session_id)
+            
+            if is_alive is not None:
+                if is_alive:
+                    game_states = [gs for gs in game_states if gs.is_alive]
+                else:
+                    game_states = [gs for gs in game_states if gs.is_dead]
+            
+            # Get associated user accounts
+            users = []
+            for gs in game_states:
+                user = UserAccountCRUD.get_by_id(gs.user_id)
+                if user and (player_type is None or user.player_type == player_type):
+                    users.append(user)
+            return users
         
         if player_type:
-            query = query.filter_by(player_type=player_type)
+            return UserAccountCRUD.get_by_player_type(player_type)
         
-        if session_id:
-            query = query.filter_by(session_id=session_id)
-        
-        if is_alive is not None:
-            if is_alive:
-                query = query.filter(Player.player_statuses.contains([PlayerStatus.ALIVE]))
-            else:
-                query = query.filter(Player.player_statuses.contains([PlayerStatus.DEAD]))
-        
-        return query.all()
+        return UserAccountCRUD.get_active_accounts()
     
     @staticmethod
-    def update_player(
-        display_name: str,
-        **updates
-    ) -> Player:
-        """
-        Update player fields.
-        
-        Args:
-            display_name: Player to update
-            **updates: Fields to update
-        
-        Returns:
-            Updated Player object
-        """
-        player = PlayerService.get_player_or_404(display_name)
+    def update_player(display_name: str, **updates) -> UserAccount:
+        """Update player fields."""
+        user = PlayerService.get_player_or_404(display_name)
         
         allowed_fields = {
             'social_media_platform_display_name',
@@ -204,58 +173,69 @@ class PlayerService:
             'game_privileges'
         }
         
-        for field, value in updates.items():
-            if field in allowed_fields:
-                setattr(player, field, value)
-            # Add new platform to list if setting preferred
-            elif field == 'preferred_social_media_platform' and value:
-                platforms = list(player.social_media_platforms or [])
-                if value not in platforms:
-                    platforms.append(value)
-                    player.social_media_platforms = platforms
+        filtered_updates = {k: v for k, v in updates.items() if k in allowed_fields}
         
-        db.session.commit()
-        return player
+        if filtered_updates:
+            return UserAccountCRUD.update(user.user_id, **filtered_updates)
+        return user
     
     @staticmethod
     def delete_player(display_name: str) -> bool:
-        """
-        Delete a player.
-        
-        Returns:
-            True if deleted, False if not found
-        """
-        player = PlayerService.get_player(display_name)
-        if not player:
+        """Delete a player."""
+        user = PlayerService.get_player(display_name)
+        if not user:
             return False
         
-        db.session.delete(player)
-        db.session.commit()
-        return True
+        return UserAccountCRUD.delete(user.user_id)
     
     @staticmethod
-    def grant_privilege(display_name: str, privilege: GamePrivilege) -> Player:
+    def grant_privilege(display_name: str, privilege: GamePrivilege) -> UserAccount:
         """Grant a privilege to a player."""
-        player = PlayerService.get_player_or_404(display_name)
-        
-        current_privileges = list(player.game_privileges or [])
-        if privilege not in current_privileges:
-            current_privileges.append(privilege)
-            player.game_privileges = current_privileges
-            db.session.commit()
-        
-        return player
+        user = PlayerService.get_player_or_404(display_name)
+        return UserAccountService.grant_privilege(user.user_id, privilege)
     
     @staticmethod
-    def revoke_privilege(display_name: str, privilege: GamePrivilege) -> Player:
+    def revoke_privilege(display_name: str, privilege: GamePrivilege) -> UserAccount:
         """Revoke a privilege from a player."""
-        player = PlayerService.get_player_or_404(display_name)
+        user = PlayerService.get_player_or_404(display_name)
+        return UserAccountService.revoke_privilege(user.user_id, privilege)
+    
+    # =============================================
+    # Game State Operations
+    # =============================================
+    
+    @staticmethod
+    def get_game_state(user_id: UUID, session_id: str) -> Optional[PlayerGameState]:
+        """Get a player's game state in a specific session."""
+        return PlayerGameStateCRUD.get_by_user_and_session(user_id, session_id)
+    
+    @staticmethod
+    def get_active_game_state(user_id: UUID) -> Optional[PlayerGameState]:
+        """Get a player's active game state (if in a session)."""
+        return PlayerGameStateCRUD.get_active_for_user(user_id)
+    
+    @staticmethod
+    def join_session(user_id: UUID, session_id: str, starting_coins: int = 2) -> PlayerGameState:
+        """Create a game state for a player joining a session."""
+        # Check if already in this session
+        existing = PlayerGameStateCRUD.get_by_user_and_session(user_id, session_id)
+        if existing:
+            return existing
         
-        current_privileges = list(player.game_privileges or [])
-        if privilege in current_privileges:
-            current_privileges.remove(privilege)
-            player.game_privileges = current_privileges
-            db.session.commit()
-        
-        return player
-
+        return PlayerGameStateCRUD.create_for_session(user_id, session_id, starting_coins)
+    
+    @staticmethod
+    def leave_session(user_id: UUID, session_id: str) -> bool:
+        """Remove a player from a session."""
+        game_state = PlayerGameStateCRUD.get_by_user_and_session(user_id, session_id)
+        if game_state:
+            PlayerGameStateCRUD.leave_session(game_state.id)
+            return True
+        return False
+    
+    @staticmethod
+    def get_session_players(session_id: str, alive_only: bool = False) -> List[PlayerGameState]:
+        """Get all players in a session."""
+        if alive_only:
+            return PlayerGameStateCRUD.get_alive_players(session_id)
+        return PlayerGameStateCRUD.get_by_session(session_id)

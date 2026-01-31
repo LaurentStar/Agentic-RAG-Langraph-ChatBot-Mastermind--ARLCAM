@@ -18,19 +18,19 @@ import log from '@/lib/logger';
 export default function SessionsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { isAuthenticated, player, logout } = useAuthStore();
+  const { isAuthenticated, user, logout, isLoading: authLoading, isHydrated } = useAuthStore();
   const { ref, isVisible } = useIntersectionObserver();
   
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
   const [joiningSessionId, setJoiningSessionId] = useState<string | null>(null);
 
-  // Redirect to login if not authenticated
+  // Redirect to login if not authenticated (after hydration and session check)
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (isHydrated && !authLoading && !isAuthenticated) {
       router.push(ROUTES.HOME);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, isHydrated, authLoading, router]);
 
   // Infinite scroll query
   const {
@@ -100,10 +100,25 @@ export default function SessionsPage() {
     });
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.push(ROUTES.HOME);
   };
+
+  // Show loading while checking session
+  if (!isHydrated || authLoading) {
+    return (
+      <main className="min-h-screen p-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="grid gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <SessionCardSkeleton key={i} />
+            ))}
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (!isAuthenticated) {
     return null; // Will redirect
@@ -116,9 +131,9 @@ export default function SessionsPage() {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-white">Game Sessions</h1>
-            {player && (
+            {user && (
               <p className="text-gray-400 mt-1">
-                Welcome back, <span className="text-coup-gold">{player.display_name}</span>
+                Welcome back, <span className="text-coup-gold">{user.display_name}</span>
               </p>
             )}
           </div>

@@ -6,35 +6,77 @@ OAuth2 authentication endpoints for Discord, Google, and Slack.
 
 import asyncio
 import logging
+import os
 import secrets
-from functools import wraps
 
-from flask import make_response, redirect, request, render_template, session, url_for
+from flask import make_response, redirect, render_template, request, session
 from flask_restx import Namespace, Resource
 
+from app.models.rest_api_models.auth_models import create_oauth_models
+from app.services.auth_service import AuthService
+from app.services.oauth_service import OAuthService
 
-def html_response(template, status=200, **kwargs):
+logger = logging.getLogger(__name__)
+
+# Frontend URL for OAuth redirects (with cookie-based auth)
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:4001')
+
+# Namespace and models
+oauth_ns = Namespace('oauth', description='OAuth2 authentication')
+oauth_models = create_oauth_models(oauth_ns)
+
+
+# =============================================
+# Internal Helpers
+# =============================================
+
+def _html_response(template, status=200, **kwargs):
     """Render template and return as HTML response (not JSON)."""
     html = render_template(template, **kwargs)
     response = make_response(html, status)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
     return response
 
-from app.services.oauth_service import OAuthService
 
-logger = logging.getLogger(__name__)
+def _create_oauth_success_response(user, provider: str):
+    """
+    Create response for successful OAuth login.
+    
+    Sets HTTP-only cookies and redirects to frontend.
+    """
+    access_token = AuthService.create_access_token(user)
+    refresh_token = AuthService.create_refresh_token(user)
+    
+    # Redirect to frontend callback page
+    redirect_url = f"{FRONTEND_URL}/auth/callback?provider={provider}"
+    response = make_response(redirect(redirect_url))
+    
+    # Set HTTP-only cookies (same as login endpoint)
+    is_production = os.getenv('ENVIRONMENT', 'local') != 'local'
+    
+    response.set_cookie(
+        'access_token',
+        access_token,
+        httponly=True,
+        secure=is_production,
+        samesite='Lax',
+        max_age=AuthService.JWT_EXPIRY_HOURS * 3600,
+        path='/'
+    )
+    response.set_cookie(
+        'refresh_token',
+        refresh_token,
+        httponly=True,
+        secure=is_production,
+        samesite='Lax',
+        max_age=AuthService.JWT_REFRESH_EXPIRY_DAYS * 86400,
+        path='/auth'
+    )
+    
+    return response
 
-oauth_ns = Namespace('oauth', description='OAuth2 authentication')
 
-# =============================================
-# API Models
-# =============================================
-from app.models.rest_api_models.auth_models import create_oauth_models
-
-oauth_models = create_oauth_models(oauth_ns)
-
-
-def run_async(coro):
+def _run_async(coro):
     """Run async function in sync context."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -59,7 +101,7 @@ class OAuthLogin(Resource):
         
         Returns HTML page with Discord, Google, and Slack login options.
         """
-        return html_response('login.html')
+        return _html_response('login.html')
 
 
 # =============================================
@@ -92,7 +134,7 @@ class DiscordCallback(Resource):
     """Discord OAuth2 callback."""
     
     @oauth_ns.doc(responses={
-        200: 'Success - returns JWT tokens',
+        302: 'Success - redirects to frontend with cookies set',
         400: 'Invalid request',
         401: 'Authentication failed'
     })
@@ -101,45 +143,32 @@ class DiscordCallback(Resource):
         Handle Discord OAuth2 callback.
         
         Exchanges authorization code for access token,
-        creates/retrieves player, and returns JWT tokens.
+        creates/retrieves user, sets HTTP-only cookies,
+        and redirects to frontend.
         """
         code = request.args.get('code')
-        state = request.args.get('state')
         error = request.args.get('error')
         
         if error:
             logger.warning(f"Discord OAuth error: {error}")
-            return html_response('auth_error.html', status=401, error=error)
+            return _html_response('auth_error.html', status=401, error=error)
         
         if not code:
-            return html_response('auth_error.html', status=400, error="No authorization code provided")
-        
-        # Verify state (CSRF protection)
-        # stored_state = session.pop('oauth_state', None)
-        # if state != stored_state:
-        #     return render_template('auth_error.html', error="Invalid state parameter"), 400
+            return _html_response('auth_error.html', status=400, error="No authorization code provided")
         
         # Handle callback (async)
-        player, oauth_token, error_msg = run_async(
+        user, oauth_token, error_msg = _run_async(
             OAuthService.handle_discord_callback(code)
         )
         
         if error_msg:
             logger.error(f"Discord OAuth callback error: {error_msg}")
-            return html_response('auth_error.html', status=401, error=error_msg)
+            return _html_response('auth_error.html', status=401, error=error_msg)
         
-        # Generate JWT tokens
-        access_token, refresh_token = OAuthService.create_tokens_for_player(player)
+        logger.info(f"Discord OAuth success: {user.display_name}")
         
-        logger.info(f"Discord OAuth success: {player.display_name}")
-        
-        return html_response(
-            'auth_success.html',
-            provider='Discord',
-            display_name=player.display_name,
-            access_token=access_token,
-            refresh_token=refresh_token
-        )
+        # Set cookies and redirect to frontend
+        return _create_oauth_success_response(user, 'discord')
 
 
 # =============================================
@@ -171,7 +200,7 @@ class GoogleCallback(Resource):
     """Google OAuth2 callback."""
     
     @oauth_ns.doc(responses={
-        200: 'Success - returns JWT tokens',
+        302: 'Success - redirects to frontend with cookies set',
         400: 'Invalid request',
         401: 'Authentication failed'
     })
@@ -180,39 +209,32 @@ class GoogleCallback(Resource):
         Handle Google OAuth2 callback.
         
         Exchanges authorization code for access token,
-        creates/retrieves player, and returns JWT tokens.
+        creates/retrieves user, sets HTTP-only cookies,
+        and redirects to frontend.
         """
         code = request.args.get('code')
         error = request.args.get('error')
         
         if error:
             logger.warning(f"Google OAuth error: {error}")
-            return html_response('auth_error.html', status=401, error=error)
+            return _html_response('auth_error.html', status=401, error=error)
         
         if not code:
-            return html_response('auth_error.html', status=400, error="No authorization code provided")
+            return _html_response('auth_error.html', status=400, error="No authorization code provided")
         
         # Handle callback (async)
-        player, oauth_token, error_msg = run_async(
+        user, oauth_token, error_msg = _run_async(
             OAuthService.handle_google_callback(code)
         )
         
         if error_msg:
             logger.error(f"Google OAuth callback error: {error_msg}")
-            return html_response('auth_error.html', status=401, error=error_msg)
+            return _html_response('auth_error.html', status=401, error=error_msg)
         
-        # Generate JWT tokens
-        access_token, refresh_token = OAuthService.create_tokens_for_player(player)
+        logger.info(f"Google OAuth success: {user.display_name}")
         
-        logger.info(f"Google OAuth success: {player.display_name}")
-        
-        return html_response(
-            'auth_success.html',
-            provider='Google',
-            display_name=player.display_name,
-            access_token=access_token,
-            refresh_token=refresh_token
-        )
+        # Set cookies and redirect to frontend
+        return _create_oauth_success_response(user, 'google')
 
 
 # =============================================
@@ -244,7 +266,7 @@ class SlackCallback(Resource):
     """Slack OAuth2 callback."""
     
     @oauth_ns.doc(responses={
-        200: 'Success - returns JWT tokens',
+        302: 'Success - redirects to frontend with cookies set',
         400: 'Invalid request',
         401: 'Authentication failed'
     })
@@ -253,39 +275,32 @@ class SlackCallback(Resource):
         Handle Slack OAuth2 callback.
         
         Exchanges authorization code for access token,
-        creates/retrieves player, and returns JWT tokens.
+        creates/retrieves user, sets HTTP-only cookies,
+        and redirects to frontend.
         """
         code = request.args.get('code')
         error = request.args.get('error')
         
         if error:
             logger.warning(f"Slack OAuth error: {error}")
-            return html_response('auth_error.html', status=401, error=error)
+            return _html_response('auth_error.html', status=401, error=error)
         
         if not code:
-            return html_response('auth_error.html', status=400, error="No authorization code provided")
+            return _html_response('auth_error.html', status=400, error="No authorization code provided")
         
         # Handle callback (async)
-        player, oauth_token, error_msg = run_async(
+        user, oauth_token, error_msg = _run_async(
             OAuthService.handle_slack_callback(code)
         )
         
         if error_msg:
             logger.error(f"Slack OAuth callback error: {error_msg}")
-            return html_response('auth_error.html', status=401, error=error_msg)
+            return _html_response('auth_error.html', status=401, error=error_msg)
         
-        # Generate JWT tokens
-        access_token, refresh_token = OAuthService.create_tokens_for_player(player)
+        logger.info(f"Slack OAuth success: {user.display_name}")
         
-        logger.info(f"Slack OAuth success: {player.display_name}")
-        
-        return html_response(
-            'auth_success.html',
-            provider='Slack',
-            display_name=player.display_name,
-            access_token=access_token,
-            refresh_token=refresh_token
-        )
+        # Set cookies and redirect to frontend
+        return _create_oauth_success_response(user, 'slack')
 
 
 # =============================================
@@ -325,21 +340,21 @@ class TokenByProvider(Resource):
             return {"error": "Invalid provider. Must be: discord, google, slack"}, 400
         
         # Look up the linked account
-        player, error = OAuthService.get_player_by_provider(provider, str(provider_user_id))
+        user, error = OAuthService.get_user_by_provider(provider, str(provider_user_id))
         
         if error:
             logger.warning(f"Token lookup failed: {provider}:{provider_user_id} - {error}")
             return {"error": error}, 404
         
         # Generate JWT tokens
-        access_token, refresh_token = OAuthService.create_tokens_for_player(player)
+        access_token, refresh_token = OAuthService.create_tokens_for_user(user)
         
-        logger.info(f"Token issued for {provider}:{provider_user_id} -> {player.display_name}")
+        logger.info(f"Token issued for {provider}:{provider_user_id} -> {user.display_name}")
         
         return {
             "access_token": access_token,
             "refresh_token": refresh_token,
-            "player_display_name": player.display_name,
-            "player_type": player.player_type.value if player.player_type else "human"
+            "player_display_name": user.display_name,
+            "player_type": user.player_type.value if user.player_type else "human"
         }, 200
 

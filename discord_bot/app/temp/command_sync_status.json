@@ -1,38 +1,32 @@
 {
-  "last_checked": "2026-01-18T18:51:40.523142+00:00",
+  "last_checked": "2026-01-20T00:47:26.840547+00:00",
   "guild_id": "856227000259575819",
   "commands": {
-    "embed": {
-      "status": "unchanged"
-    },
-    "game_session-end": {
-      "status": "unchanged"
-    },
-    "unregisterchannel": {
-      "status": "unchanged"
-    },
-    "game_session-create": {
-      "status": "unchanged"
-    },
-    "say": {
-      "status": "unchanged"
-    },
-    "load": {
-      "status": "unchanged"
-    },
-    "syncchannels": {
-      "status": "unchanged"
-    },
-    "game_session-join": {
+    "gamechatstatus": {
       "status": "unchanged"
     },
     "unload": {
       "status": "unchanged"
     },
-    "gamechatstatus": {
+    "syncchannels": {
+      "status": "unchanged"
+    },
+    "embed": {
+      "status": "unchanged"
+    },
+    "game_session-list": {
+      "status": "unchanged"
+    },
+    "game_session-create": {
       "status": "unchanged"
     },
     "registerchannel": {
+      "status": "unchanged"
+    },
+    "game_session-end": {
+      "status": "unchanged"
+    },
+    "say": {
       "status": "unchanged"
     },
     "game_session-start": {
@@ -41,16 +35,22 @@
     "shutdown": {
       "status": "unchanged"
     },
-    "game_session-list": {
+    "game_session-join": {
       "status": "unchanged"
     },
     "reload": {
+      "status": "unchanged"
+    },
+    "unregisterchannel": {
       "status": "unchanged"
     },
     "game_session-register-channel": {
       "status": "unchanged"
     },
     "listchannels": {
+      "status": "unchanged"
+    },
+    "load": {
       "status": "unchanged"
     }
   }

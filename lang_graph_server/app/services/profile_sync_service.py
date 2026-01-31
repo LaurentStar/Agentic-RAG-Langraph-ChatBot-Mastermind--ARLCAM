@@ -16,9 +16,9 @@ The profile sync:
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from app.database.models import Player
+from app.database.models import UserAccount, PlayerGameState
 from app.constants import (
     AgentModulator,
     PLAY_STYLE_MODULATORS,
@@ -74,8 +74,8 @@ class ProfileSyncService:
     _cache = ProfileCache(ttl_seconds=300)
     
     @classmethod
-    def get_profile_from_db(cls, display_name: str) -> Optional[Player]:
-        """Fetch player data from database."""
+    def get_profile_from_db(cls, display_name: str) -> Optional[Tuple[UserAccount, PlayerGameState]]:
+        """Fetch player data from database (returns user account and game state)."""
         from app.services.pending_events_db_service import PendingEventsDBService
         return PendingEventsDBService.get_player(display_name)
     
@@ -134,8 +134,9 @@ class ProfileSyncService:
             player_data = None
         
         if player_data:
+            user, game_state = player_data
             profile = cls.build_agent_profile(
-                display_name=player_data.display_name,
+                display_name=user.display_name,
                 play_style=play_style,
                 personality=personality,
             )

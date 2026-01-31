@@ -19,7 +19,7 @@ class GameSession(db.Model):
     """Game session table ORM model."""
     
     __bind_key__ = 'db_players'
-    __tablename__ = 'game_session_table_orm'
+    __tablename__ = 'gs_game_session_table_orm'
     
     # ---------------------- Identity ---------------------- #
     session_id: Mapped[str] = mapped_column(String, primary_key=True)
@@ -80,7 +80,14 @@ class GameSession(db.Model):
     )
     
     # ---------------------- Relationships ---------------------- #
-    players = relationship("Player", backref="session", lazy="dynamic")
+    # Game states for players in this session
+    player_game_states = relationship(
+        "PlayerGameState",
+        backref="session",
+        lazy="dynamic"
+    )
+    
+    
     broadcast_destinations = relationship(
         "BroadcastDestination",
         back_populates="session",

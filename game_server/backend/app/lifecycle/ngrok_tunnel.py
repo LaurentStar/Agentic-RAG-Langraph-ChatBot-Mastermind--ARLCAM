@@ -5,9 +5,12 @@ Starts ngrok tunnel when ENVIRONMENT=local.
 Only used for local development - not loaded in dev/qa/prod.
 """
 
-import os
-import logging
 import atexit
+import logging
+import os
+import signal
+import sys
+import time
 from typing import Optional
 
 logger = logging.getLogger("game_server")
@@ -17,6 +20,35 @@ logger = logging.getLogger("game_server")
 # =============================================
 
 _tunnel = None
+
+
+# =============================================
+# PRIVATE HELPERS
+# =============================================
+
+def _kill_existing_ngrok() -> None:
+    """
+    Kill any existing ngrok process before starting.
+    
+    Prevents "endpoint already online" error when restarting
+    after an unclean shutdown left an orphan ngrok process.
+    """
+    # NOTE: Inline import is intentional - pyngrok is optional (local-dev only)
+    try:
+        from pyngrok import ngrok
+        ngrok.kill()
+        # Wait for ngrok servers to recognize the disconnect
+        time.sleep(5)
+        logger.debug("Killed existing ngrok process (if any)")
+    except Exception:
+        pass  # No existing process or pyngrok not installed
+
+
+def _signal_handler(signum, frame):
+    """Handle shutdown signals (SIGINT, SIGTERM)."""
+    logger.info(f"Received signal {signum}, stopping ngrok...")
+    stop_tunnel()
+    sys.exit(0)
 
 
 # =============================================
@@ -35,7 +67,11 @@ def start_tunnel(port: int) -> Optional[str]:
     """
     global _tunnel
     
+    # Kill any orphan ngrok process from previous session
+    _kill_existing_ngrok()
+    
     try:
+        # NOTE: Inline import is intentional - pyngrok is optional (local-dev only)
         from pyngrok import ngrok, conf
         
         auth_token = os.getenv("NGROK_AUTH_TOKEN")
@@ -59,7 +95,14 @@ def start_tunnel(port: int) -> Optional[str]:
         public_url = _tunnel.public_url
         logger.info(f"Ngrok tunnel active: {public_url}")
         
-        # Register cleanup on exit
+        # Register signal handlers for graceful shutdown (only on main thread)
+        try:
+            signal.signal(signal.SIGINT, _signal_handler)
+            signal.signal(signal.SIGTERM, _signal_handler)
+        except ValueError:
+            pass  # Not on main thread, skip signal registration
+        
+        # Register cleanup on normal exit
         atexit.register(stop_tunnel)
         
         return public_url

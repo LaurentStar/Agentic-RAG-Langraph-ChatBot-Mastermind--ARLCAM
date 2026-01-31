@@ -10,7 +10,8 @@ import os
 from flask import Flask
 from flask_apscheduler import APScheduler
 
-from app.extensions import api, db
+from app.extensions import api, db, cors
+from app.lifecycle import create_default_admin_if_enabled
 
 # Get the directory where this __init__.py file is located
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,13 +28,17 @@ from app.apis import (
     # Account
     link_ns,
     identity_ns,
+    # Users
+    user_ns,
+    # Profiles
+    profile_ns,
     # Game
     actions_ns,
     chat_ns,
     reactions_ns,
     state_ns,
     game_session_ns,
-    # Players
+    # Players (DEPRECATED)
     player_ns,
     # System
     health_ns,
@@ -54,10 +59,12 @@ from app.models.postgres_sql_db_models import (
     GameServerLog,
     GameSession,
     OAuthIdentity,
-    Player,
+    PlayerGameState,
+    PlayerProfile,
     Reaction,
     ToBeInitiatedUpgradeDetails,
     TurnResultORM,
+    UserAccount,
 )
 
 # Scheduler instance (declared here, initialized in create_app)
@@ -107,6 +114,12 @@ def create_app(test_config=None):
     # Database
     db.init_app(app)
     
+    # CORS (allow frontend origins with credentials for HTTP-only cookies)
+    cors.init_app(app, origins=[
+        "http://localhost:4001",
+        "http://127.0.0.1:4001"
+    ], supports_credentials=True)
+    
     # REST API
     # api is declared in extensions.py (with authorizations for Swagger UI)
     api.init_app(
@@ -135,6 +148,12 @@ def create_app(test_config=None):
     api.add_namespace(link_ns, path='/account/link')
     api.add_namespace(identity_ns, path='/account/identities')
     
+    # Users domain
+    api.add_namespace(user_ns, path='/users')
+    
+    # Profiles domain
+    api.add_namespace(profile_ns, path='/profiles')
+    
     # Game domain
     api.add_namespace(game_session_ns, path='/game/sessions')
     api.add_namespace(actions_ns, path='/game/actions')
@@ -142,7 +161,7 @@ def create_app(test_config=None):
     api.add_namespace(reactions_ns, path='/game/reactions')
     api.add_namespace(state_ns, path='/game/state')
     
-    # Players domain
+    # Players domain (DEPRECATED - use /users and /profiles)
     api.add_namespace(player_ns, path='/players')
     
     # System domain
@@ -158,23 +177,36 @@ def create_app(test_config=None):
     # =============================================
     if os.getenv("ENVIRONMENT", "local") == "local":
         from app.apis.local.proxy import slack_proxy_ns
-        from app.lifecycle.ngrok_tunnel import start_tunnel
         
         # Register proxy routes
         api.add_namespace(slack_proxy_ns, path='/local/proxy/slack')
         
-        # Start ngrok tunnel
-        port = int(os.getenv("GAME_SERVER_PORT", "4000"))
-        public_url = start_tunnel(port)
-        if public_url:
-            app.logger.info(f"Local development mode enabled")
-            app.logger.info(f"Public URL: {public_url}")
-            app.logger.info(f"Slack events: {public_url}/local/proxy/slack/events")
-            app.logger.info(f"Slack commands: {public_url}/local/proxy/slack/commands")
+        # Start ngrok tunnel only in the worker process (not the reloader)
+        # When debug=True, Flask spawns 2 processes. WERKZEUG_RUN_MAIN is only
+        # set in the worker process. When debug=False, there's no reloader,
+        # so we also start ngrok in that case.
+        # Check if debug mode is enabled via environment variable
+        # (app.debug is not set yet during create_app - it's set by app.run())
+        debug_mode = os.getenv("GAME_SERVER_DEBUG", "False").lower() == "true"
+        is_worker_process = os.getenv("WERKZEUG_RUN_MAIN") == "true"
+        
+        if is_worker_process or not debug_mode:
+            from app.lifecycle.ngrok_tunnel import start_tunnel
+            
+            port = int(os.getenv("GAME_SERVER_PORT", "4000"))
+            public_url = start_tunnel(port)
+            if public_url:
+                app.logger.info(f"Local development mode enabled")
+                app.logger.info(f"Public URL: {public_url}")
+                app.logger.info(f"Slack events: {public_url}/local/proxy/slack/events")
+                app.logger.info(f"Slack commands: {public_url}/local/proxy/slack/commands")
     
     # ---------------------- Create Database Tables ---------------------- #
     with app.app_context():
         # Create all tables for the db_players bind
         db.create_all(bind_key='db_players')
+        
+        # Create default admin if enabled
+        create_default_admin_if_enabled(app)
     
     return app

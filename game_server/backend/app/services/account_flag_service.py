@@ -12,7 +12,8 @@ from typing import List, Optional, Tuple, Dict, Any
 from difflib import SequenceMatcher
 
 from app.extensions import db
-from app.models.postgres_sql_db_models import AccountFlag, Player
+from app.models.postgres_sql_db_models import AccountFlag, UserAccount
+from app.crud import UserAccountCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +274,7 @@ class AccountFlagService:
         cls,
         username: str,
         threshold: float = 0.8
-    ) -> List[Tuple[Player, float]]:
+    ) -> List[Tuple[UserAccount, float]]:
         """
         Find players with similar usernames.
         
@@ -282,40 +283,41 @@ class AccountFlagService:
             threshold: Minimum similarity ratio (0.0 to 1.0)
         
         Returns:
-            List of (player, similarity_score) tuples
+            List of (user, similarity_score) tuples
         """
-        similar_players = []
-        all_players = Player.query.all()
+        similar_users = []
+        all_users = UserAccountCRUD.get_active_accounts()
         
         username_lower = username.lower()
         
-        for player in all_players:
-            if player.display_name.lower() == username_lower:
+        for user in all_users:
+            if user.display_name.lower() == username_lower:
                 continue
             
             # Compare against display name
             ratio1 = SequenceMatcher(
                 None,
                 username_lower,
-                player.display_name.lower()
+                user.display_name.lower()
             ).ratio()
             
             # Compare against social media display name
+            sm_name = user.social_media_platform_display_name or ""
             ratio2 = SequenceMatcher(
                 None,
                 username_lower,
-                player.social_media_platform_display_name.lower()
-            ).ratio()
+                sm_name.lower()
+            ).ratio() if sm_name else 0
             
             max_ratio = max(ratio1, ratio2)
             
             if max_ratio >= threshold:
-                similar_players.append((player, max_ratio))
+                similar_users.append((user, max_ratio))
         
         # Sort by similarity (highest first)
-        similar_players.sort(key=lambda x: x[1], reverse=True)
+        similar_users.sort(key=lambda x: x[1], reverse=True)
         
-        return similar_players
+        return similar_users
     
     # =============================================
     # Statistics

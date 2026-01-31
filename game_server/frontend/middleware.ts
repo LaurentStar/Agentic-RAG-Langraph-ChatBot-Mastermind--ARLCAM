@@ -10,15 +10,9 @@ const authRoutes = ['/login', '/register'];
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   
-  // Check for auth token in cookies
-  // Note: In a real app, you'd validate the JWT here
+  // Check for auth token in cookies (set by backend)
   const token = request.cookies.get('access_token')?.value;
-  
-  // For client-side auth (localStorage), we check a flag cookie
-  // This is set by the client after successful login
-  const isAuthenticatedFlag = request.cookies.get('is_authenticated')?.value === 'true';
-  
-  const isAuthenticated = !!token || isAuthenticatedFlag;
+  const isAuthenticated = !!token;
 
   // Check if trying to access protected route without auth
   const isProtectedRoute = protectedRoutes.some(route => 

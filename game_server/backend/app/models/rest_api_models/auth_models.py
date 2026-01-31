@@ -11,15 +11,17 @@ def create_auth_models(api):
     """Create and return auth-related API models."""
     
     login_request = api.model('LoginRequest', {
-        'display_name': fields.String(required=True, description='Player display name'),
-        'password': fields.String(required=True, description='Player password')
+        'user_name': fields.String(required=True, description='Login username'),
+        'password': fields.String(required=True, description='Account password')
     })
     
     login_response = api.model('LoginResponse', {
         'access_token': fields.String(description='JWT access token'),
         'refresh_token': fields.String(description='JWT refresh token'),
-        'player_type': fields.String(description='Type of player'),
-        'display_name': fields.String(description='Player display name'),
+        'user_id': fields.String(description='User UUID'),
+        'user_name': fields.String(description='Login username'),
+        'display_name': fields.String(description='Public display name'),
+        'player_type': fields.String(description='Type of player (human, llm_agent, admin)'),
         'expires_in': fields.Integer(description='Token expiry in seconds')
     })
     
@@ -36,12 +38,25 @@ def create_auth_models(api):
         'error': fields.String(description='Error message')
     })
     
+    user_info = api.model('UserInfo', {
+        'user_id': fields.String(description='User UUID'),
+        'user_name': fields.String(description='Login username'),
+        'display_name': fields.String(description='Public display name'),
+        'player_type': fields.String(description='human, llm_agent, or admin')
+    })
+    
+    logout_response = api.model('LogoutResponse', {
+        'message': fields.String(description='Logout confirmation')
+    })
+    
     return {
         'login_request': login_request,
         'login_response': login_response,
         'refresh_request': refresh_request,
         'refresh_response': refresh_response,
-        'error_response': error_response
+        'error_response': error_response,
+        'user_info': user_info,
+        'logout_response': logout_response
     }
 
 
@@ -64,7 +79,9 @@ def create_oauth_models(api):
     token_by_provider_response = api.model('TokenByProviderResponse', {
         'access_token': fields.String(description='JWT access token'),
         'refresh_token': fields.String(description='JWT refresh token'),
-        'player_display_name': fields.String(description='Player display name'),
+        'user_id': fields.String(description='User UUID'),
+        'user_name': fields.String(description='Login username'),
+        'display_name': fields.String(description='Public display name'),
         'player_type': fields.String(description='Player type (human, llm_agent, admin)')
     })
     

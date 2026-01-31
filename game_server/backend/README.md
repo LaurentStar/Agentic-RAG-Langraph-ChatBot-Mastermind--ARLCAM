@@ -42,7 +42,9 @@
 - [🚀 Setup](#-setup)
 - [🐳 Docker](#-docker)
 - [⚙️ Environment Variables](#️-environment-variables)
+- [❓ FAQ - Ngrok Troubleshooting](#-faq---ngrok-troubleshooting)
 - [🗺️ Roadmap](#️-roadmap)
+- [🌱 Green Flags](#-green-flags)
 - [📚 API Documentation](#-api-documentation)
 - [👨‍💻 Author](#-author)
 - [📄 License](#-license)
@@ -545,6 +547,109 @@ docker compose up -d --build
 | `SLACK_BOT_LOCAL_URL` | Local only | `http://localhost:3002` | Slack bot URL for proxy |
 | `NGROK_AUTH_TOKEN` | Local only | - | Ngrok authentication token |
 | `NGROK_DEV_DOMAIN` | Local only | - | Ngrok static domain |
+| `GAME_SERVER_DEBUG` | No | `False` | Enable Flask debug mode with auto-reload |
+
+---
+
+## ❓ FAQ - Ngrok Troubleshooting
+
+Common issues when running ngrok for local development.
+
+### Endpoint Already Online (ERR_NGROK_334)
+
+**Error:**
+```
+failed to start tunnel: The endpoint 'https://your-domain.ngrok-free.dev' is already online.
+ERR_NGROK_334
+```
+
+**Cause:** An orphan ngrok process from a previous session is still running and holding the static domain.
+
+**Fix - Kill orphan ngrok processes:**
+
+```powershell
+# Windows (PowerShell)
+taskkill /F /IM ngrok.exe
+```
+
+```bash
+# Linux/Mac
+pkill -f ngrok
+```
+
+Then restart your game server.
+
+### Can't Bind Web Address (Port 4040 in use)
+
+**Error:**
+```
+can't bind default web address, trying alternatives addr=127.0.0.1:4040
+```
+
+**Cause:** The ngrok web inspection UI port is already in use by another ngrok process.
+
+**Fix:** Same as above - kill all ngrok processes:
+
+```powershell
+# Windows (PowerShell)
+taskkill /F /IM ngrok.exe
+```
+
+```bash
+# Linux/Mac
+pkill -f ngrok
+```
+
+### Two Ngrok Agents in Dashboard
+
+**Symptom:** The [ngrok agents dashboard](https://dashboard.ngrok.com/tunnels/agents) shows 2 agents, but only 1 has an active tunnel.
+
+**Cause:** Flask's debug mode reloader spawns two processes. If not handled correctly, both try to start ngrok.
+
+**Fix:** Ensure `GAME_SERVER_DEBUG` environment variable matches your intended debug mode:
+
+```bash
+# For debug mode (with reloader)
+export GAME_SERVER_DEBUG=True
+
+# For production mode (no reloader)
+export GAME_SERVER_DEBUG=False
+```
+
+The server automatically detects the reloader and only starts ngrok in the worker process.
+
+### Useful Ngrok URLs
+
+| Resource | URL |
+|----------|-----|
+| Agents Dashboard | https://dashboard.ngrok.com/tunnels/agents |
+| Active Endpoints | https://dashboard.ngrok.com/cloud-edge/endpoints |
+| Auth Token | https://dashboard.ngrok.com/get-started/your-authtoken |
+| Static Domains | https://dashboard.ngrok.com/cloud-edge/domains |
+
+### Quick Diagnostic Commands
+
+```powershell
+# Windows - List ngrok processes
+Get-Process -Name ngrok -ErrorAction SilentlyContinue
+
+# Windows - Kill all ngrok processes
+taskkill /F /IM ngrok.exe 2>$null
+
+# Windows - Check if port 4040 is in use
+netstat -ano | findstr :4040
+```
+
+```bash
+# Linux/Mac - List ngrok processes
+pgrep -l ngrok
+
+# Linux/Mac - Kill all ngrok processes
+pkill -f ngrok
+
+# Linux/Mac - Check if port 4040 is in use
+lsof -i :4040
+```
 
 ---
 
@@ -564,6 +669,36 @@ docker compose up -d --build
 | WebSocket Chat | 📋 Planned | Real-time updates |
 | Tournament Mode | 📋 Planned | Competitive play |
 | Leaderboards | 📋 Planned | Player rankings |
+
+---
+
+## 🌱 Green Flags
+
+**Green Flags** are potential refactors to consider when certain patterns emerge. These aren't urgent - they become worthwhile when the trigger conditions keep recurring.
+
+### Centralized `config.py` for Environment Variables
+
+**Current state:** Environment variables are read inline via `os.getenv()` wherever needed.
+
+**Refactor:** Create `app/config.py` to centralize all environment-based configuration.
+
+**Trigger conditions:**
+- Same environment variable is read in 3+ different files
+- Different default values are used for the same variable in different places
+- A bug is caused by inconsistent defaults (e.g., `ENVIRONMENT` defaulting to `"local"` in one file and `"development"` in another)
+- Onboarding a new developer requires grep-ing the codebase to find all required env vars
+- Testing requires patching `os.getenv` in multiple places for the same variable
+- You need validation logic (e.g., require `JWT_SECRET_KEY` in production)
+
+**Files currently using inline `os.getenv()`:**
+- `oauth_ns.py` - FRONTEND_URL, ENVIRONMENT
+- `auth_ns.py` - ENVIRONMENT
+- `auth_service.py` - SERVICE_API_KEY, OPS_API_KEY
+- `oauth_service.py` - OAuth client IDs, secrets, redirect URIs
+- `account_link_service.py` - GAME_SERVER_BASE_URL
+- `lang_graph_client.py` - LANG_GRAPH_SERVER_URL
+- `startup.py` - Admin bootstrap config
+- `ngrok_tunnel.py` - NGROK_AUTH_TOKEN, NGROK_DEV_DOMAIN
 
 ---
 
@@ -614,6 +749,54 @@ This project is licensed under the MIT License - see the [LICENSE](../../LICENSE
 - [Coup Board Game](https://boardgamegeek.com/boardgame/131357/coup) - Game inspiration
 - [Discord.py](https://discordpy.readthedocs.io/) - Discord bot framework
 - [Slack Bolt](https://slack.dev/bolt-python/) - Slack bot framework
+
+---
+
+## 📝 Development To-Do
+
+**Goal:** Enable cross-platform Coup gameplay between Discord and Slack with Game Server as the authoritative async source of truth.
+
+### Phase 1: Discord Integration (In Progress)
+
+- [ ] **Game Action Commands** - Add slash commands for all Coup actions:
+  - `/action-income` - Take 1 coin
+  - `/action-foreign_aid` - Take 2 coins (blockable)
+  - `/action-coup` - Pay 7 coins, force player to lose influence
+  - `/action-steal` - Take 2 coins from target (Captain)
+  - `/action-assassinate` - Pay 3 coins, target loses influence (Assassin)
+  - `/action-exchange` - Swap cards with deck (Ambassador)
+  - `/action-tax` - Take 3 coins (Duke)
+
+- [ ] **Reaction Commands** - Add slash commands for reactions:
+  - `/react-challenge` - Challenge the current action
+  - `/react-block` - Block with claimed role
+  - `/react-pass` - Pass on reacting
+
+- [ ] **Game State Commands** - Player visibility:
+  - `/game-status` - View current turn, phase, player coins/influence
+  - `/game-hand` - View own cards (ephemeral)
+  - `/game-history` - View recent actions
+
+- [ ] **Turn Notifications** - Broadcast turn changes to Discord channels:
+  - "It's [Player]'s turn" messages
+  - Phase transition announcements
+  - Action resolution summaries
+
+- [ ] **Card Reveal Flow** - Handle challenge/assassination reveals:
+  - Prompt player to select card to reveal
+  - Display reveal result to all players
+
+### Phase 2: Slack Integration
+
+- [ ] **Mirror Discord Commands** - Port all action/reaction commands to Slack
+- [ ] **Slack Block Kit UI** - Rich interactive messages for game state
+- [ ] **Cross-Platform Turn Sync** - Ensure turn state consistent across bots
+
+### Phase 3: Cross-Platform Polish
+
+- [ ] **Unified Session View** - Show all players regardless of platform
+- [ ] **Platform Indicators** - Display Discord/Slack icons next to player names
+- [ ] **Graceful Disconnects** - Handle bot outages without corrupting game state
 
 ---
 

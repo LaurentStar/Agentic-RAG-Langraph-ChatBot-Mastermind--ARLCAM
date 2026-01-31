@@ -1,10 +1,25 @@
 'use client';
 
+import { useEffect, useRef, useState, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, ReactNode } from 'react';
+import { useAuthStore } from '@/stores/authStore';
 
 interface ProvidersProps {
   children: ReactNode;
+}
+
+function AuthProvider({ children }: { children: ReactNode }) {
+  const { checkSession, isHydrated } = useAuthStore();
+  const hasChecked = useRef(false);
+
+  useEffect(() => {
+    if (isHydrated && !hasChecked.current) {
+      hasChecked.current = true;
+      checkSession();
+    }
+  }, [isHydrated, checkSession]);
+
+  return <>{children}</>;
 }
 
 export function Providers({ children }: ProvidersProps) {
@@ -22,7 +37,9 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <AuthProvider>
+        {children}
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

@@ -21,7 +21,7 @@ class GameServerLog(db.Model):
     Stores chat flow events, LangGraph push results, and errors.
     Useful for debugging message flow from Discord → Game Server → LangGraph.
     """
-    __tablename__ = 'game_server_logs_orm'
+    __tablename__ = 'gs_server_logs_table_orm'
     __bind_key__ = 'db_players'
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

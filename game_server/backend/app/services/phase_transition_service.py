@@ -200,16 +200,16 @@ class PhaseTransitionService:
         Returns:
             True if game should end (transition to ENDING), False to continue
         """
-        from app.models.postgres_sql_db_models import Player
+        from app.crud import PlayerGameStateCRUD
         
         # Clear all pending actions for the session
-        players = Player.query.filter_by(session_id=session.session_id).all()
-        for player in players:
-            player.to_be_initiated = []
-            player.target_display_name = None
+        game_states = PlayerGameStateCRUD.get_by_session(session.session_id)
+        for game_state in game_states:
+            game_state.to_be_initiated = []
+            game_state.target_display_name = None
         
         # Check for winner (only one player alive)
-        alive_count = sum(1 for p in players if p.is_alive)
+        alive_count = sum(1 for gs in game_states if gs.is_alive)
         if alive_count <= 1:
             return True  # Signal to transition to ENDING phase
         

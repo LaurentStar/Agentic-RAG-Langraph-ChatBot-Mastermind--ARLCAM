@@ -1,14 +1,16 @@
 """
 OAuth Identity ORM Model.
 
-SQLAlchemy model for storing OAuth provider identities linked to players.
+SQLAlchemy model for storing OAuth provider identities linked to user accounts.
 Supports Discord, Google, and Slack OAuth providers.
 """
 
+import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import ForeignKey, String, DateTime, Integer
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.extensions import db
@@ -18,19 +20,20 @@ class OAuthIdentity(db.Model):
     """
     OAuth Identity table ORM model.
     
-    Links external OAuth provider accounts to player accounts.
-    A player can have multiple OAuth identities (one per provider).
+    Links external OAuth provider accounts to user accounts.
+    A user can have multiple OAuth identities (one per provider).
     """
     
     __bind_key__ = 'db_players'
-    __tablename__ = 'oauth_identity'
+    __tablename__ = 'gs_oauth_identity_table_orm'
     
     # ---------------------- Identity ---------------------- #
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     
-    # ---------------------- Player Link ---------------------- #
-    player_display_name: Mapped[str] = mapped_column(
-        ForeignKey("player_table_orm.display_name"),
+    # ---------------------- User Link ---------------------- #
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gs_user_account_table_orm.user_id", ondelete="CASCADE"),
         nullable=False,
         index=True
     )
@@ -71,7 +74,7 @@ class OAuthIdentity(db.Model):
     # When set, identity is soft-deleted with 7-day grace period for restoration
     
     # ---------------------- Relationships ---------------------- #
-    player = relationship("Player", back_populates="oauth_identities")
+    user = relationship("UserAccount", back_populates="oauth_identities")
     
     # ---------------------- Unique Constraint ---------------------- #
     __table_args__ = (
@@ -91,13 +94,13 @@ class OAuthIdentity(db.Model):
     
     def __repr__(self):
         status = " [DELETED]" if self.is_deleted else ""
-        return f"<OAuthIdentity {self.provider}:{self.provider_user_id} -> {self.player_display_name}{status}>"
+        return f"<OAuthIdentity {self.provider}:{self.provider_user_id} -> {self.user_id}{status}>"
     
     def to_dict(self, include_deleted: bool = False):
         """Convert to dictionary."""
         result = {
             'id': self.id,
-            'player_display_name': self.player_display_name,
+            'user_id': str(self.user_id),
             'provider': self.provider,
             'provider_user_id': self.provider_user_id,
             'provider_username': self.provider_username,
@@ -110,4 +113,3 @@ class OAuthIdentity(db.Model):
         if include_deleted:
             result['deleted_at'] = self.deleted_at.isoformat() if self.deleted_at else None
         return result
-

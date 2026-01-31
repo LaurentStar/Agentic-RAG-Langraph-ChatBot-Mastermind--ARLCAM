@@ -24,20 +24,20 @@ class ChatBotEndpoint(db.Model):
     """
     
     __bind_key__ = 'db_players'
-    __tablename__ = 'chat_bot_endpoint_table_orm'
+    __tablename__ = 'gs_chat_bot_endpoint_table_orm'
     
     # Primary key
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     
     # Session reference
     session_id: Mapped[str] = mapped_column(
-        ForeignKey("game_session_table_orm.session_id"),
+        ForeignKey("gs_game_session_table_orm.session_id"),
         nullable=False
     )
     
     # Platform identification
     platform: Mapped[SocialMediaPlatform] = mapped_column(
-        postgresql.ENUM(SocialMediaPlatform, name="social_media_platform_enum", create_type=False),
+        postgresql.ENUM(SocialMediaPlatform, name="social_media_platform_enum", create_type=True),
         nullable=False
     )
     

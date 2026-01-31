@@ -14,10 +14,10 @@ export function LoginForm() {
   const router = useRouter();
   const { login, setLoading, setError, isLoading, error } = useAuthStore();
   
-  const [username, setUsername] = useState('');
+  const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [validationErrors, setValidationErrors] = useState<{
-    username?: string;
+    user_name?: string;
     password?: string;
   }>({});
 
@@ -26,7 +26,7 @@ export function LoginForm() {
     setValidationErrors({});
 
     // Validate with Zod
-    const result = LoginRequestSchema.safeParse({ username, password });
+    const result = LoginRequestSchema.safeParse({ user_name: userName, password });
     
     if (!result.success) {
       const errors: typeof validationErrors = {};
@@ -40,7 +40,7 @@ export function LoginForm() {
 
     try {
       setLoading(true);
-      log.debug('Attempting login for:', username);
+      log.debug('Attempting login for:', userName);
       
       const response = await loginUser(result.data);
       login(response);
@@ -58,10 +58,10 @@ export function LoginForm() {
       <Input
         label="Username"
         type="text"
-        value={username}
-        onChange={(e) => setUsername(e.target.value)}
+        value={userName}
+        onChange={(e) => setUserName(e.target.value)}
         placeholder="Enter your username"
-        error={validationErrors.username}
+        error={validationErrors.user_name}
         disabled={isLoading}
         autoComplete="username"
       />

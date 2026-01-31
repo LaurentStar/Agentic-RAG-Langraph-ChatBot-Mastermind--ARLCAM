@@ -20,11 +20,13 @@ from app.extensions import db
 from app.models.game_models import ActionResult, TurnResult
 from app.models.postgres_sql_db_models import (
     GameSession,
-    Player,
+    UserAccount,
+    PlayerGameState,
     Reaction,
-    ToBeInitiatedUpgradeDetails,
     TurnResultORM,
 )
+from app.models.postgres_sql_db_models.player_game_state import ToBeInitiatedUpgradeDetails
+from app.crud import PlayerGameStateCRUD
 from app.services.deck_service import DeckService
 
 
@@ -52,8 +54,11 @@ class ActionResolutionService:
         if not session:
             raise ValueError(f"Session '{session_id}' not found")
         
-        players = Player.query.filter_by(session_id=session_id).all()
-        players_by_name = {p.display_name: p for p in players}
+        # Get all players in session with their user accounts
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
+        # Create mapping by display_name for easy lookup
+        # Maps display_name -> (user, game_state)
+        players_by_name = {u.display_name: (u, gs) for u, gs in player_data}
         action_results = []
         players_eliminated = []
         
@@ -72,25 +77,26 @@ class ActionResolutionService:
             reactions_by_actor[reaction.actor_display_name].append(reaction)
         
         # Process each player's pending action
-        for player in players:
-            if not player.is_alive:
+        for user, game_state in player_data:
+            if not game_state.is_alive:
                 continue
             
-            if not player.to_be_initiated:
+            if not game_state.to_be_initiated:
                 continue
             
-            for action in player.to_be_initiated:
+            for action in game_state.to_be_initiated:
                 if action == ToBeInitiated.NO_EVENT:
                     continue
                 
                 # Get reactions to this action
-                action_reactions = reactions_by_actor.get(player.display_name, [])
+                action_reactions = reactions_by_actor.get(user.display_name, [])
                 
                 result = ActionResolutionService._resolve_action_with_reactions(
                     session=session,
-                    actor=player,
+                    actor_name=user.display_name,
+                    actor_state=game_state,
                     action=action,
-                    target_name=player.target_display_name,
+                    target_name=game_state.target_display_name,
                     players_by_name=players_by_name,
                     reactions=action_reactions
                 )
@@ -101,14 +107,14 @@ class ActionResolutionService:
             reaction.is_resolved = True
         
         # Update eliminated players
-        for player in players:
-            card_count = len(player.card_types or [])
-            was_alive = PlayerStatus.ALIVE in (player.player_statuses or [])
+        for user, game_state in player_data:
+            card_count = len(game_state.card_types or [])
+            was_alive = PlayerStatus.ALIVE in (game_state.player_statuses or [])
             
             if card_count == 0 and was_alive:
                 # Player just lost their last card
-                player.player_statuses = [PlayerStatus.DEAD]
-                players_eliminated.append(player.display_name)
+                game_state.player_statuses = [PlayerStatus.DEAD]
+                players_eliminated.append(user.display_name)
         
         db.session.commit()
         
@@ -133,32 +139,45 @@ class ActionResolutionService:
     @staticmethod
     def _resolve_action_with_reactions(
         session: GameSession,
-        actor: Player,
+        actor_name: str,
+        actor_state: PlayerGameState,
         action: ToBeInitiated,
         target_name: Optional[str],
         players_by_name: dict,
         reactions: List[Reaction]
     ) -> ActionResult:
-        """Resolve a single action considering all reactions."""
+        """Resolve a single action considering all reactions.
         
-        target = players_by_name.get(target_name) if target_name else None
+        Args:
+            session: The game session
+            actor_name: Display name of the acting player
+            actor_state: Game state of the acting player
+            action: The action being resolved
+            target_name: Display name of the target (if any)
+            players_by_name: Dict mapping display_name -> (UserAccount, PlayerGameState)
+            reactions: List of reactions to this action
+        """
+        
+        # Get target tuple if exists
+        target_tuple = players_by_name.get(target_name) if target_name else None
+        target_state = target_tuple[1] if target_tuple else None
         
         # Get upgrade details if any
         upgrade = ToBeInitiatedUpgradeDetails.query.filter_by(
-            display_name=actor.display_name
+            game_state_id=actor_state.id
         ).first()
         
         # Check for insufficient coins
         cost = ACTION_COSTS.get(action, 0)
-        if actor.coins < cost:
+        if actor_state.coins < cost:
             return ActionResult(
-                actor=actor.display_name,
+                actor=actor_name,
                 action=action,
                 target=target_name,
                 outcome=ResolutionOutcome.FAILED,
                 cards_revealed=[],
                 coins_transferred=0,
-                description=f"{actor.display_name}'s {action.value} failed (insufficient coins)"
+                description=f"{actor_name}'s {action.value} failed (insufficient coins)"
             )
         
         # Separate challenges and blocks
@@ -168,101 +187,111 @@ class ActionResolutionService:
         # Process challenges first
         if challenges:
             challenge = challenges[0]  # First challenger
-            challenger = players_by_name.get(challenge.reactor_display_name)
+            challenger_tuple = players_by_name.get(challenge.reactor_display_name)
             
-            if challenger:
+            if challenger_tuple:
+                challenger_name, challenger_state = challenger_tuple
                 challenge_result = ActionResolutionService._resolve_challenge(
                     session=session,
-                    actor=actor,
+                    actor_name=actor_name,
+                    actor_state=actor_state,
                     action=action,
-                    challenger=challenger,
+                    challenger_name=challenger_name.display_name,
+                    challenger_state=challenger_state,
                     players_by_name=players_by_name
                 )
                 
                 if challenge_result[0]:  # Challenge succeeded (actor was bluffing)
                     return ActionResult(
-                        actor=actor.display_name,
+                        actor=actor_name,
                         action=action,
                         target=target_name,
                         outcome=ResolutionOutcome.CHALLENGED_LOST,
                         cards_revealed=challenge_result[1],
                         coins_transferred=0,
-                        description=f"{actor.display_name}'s {action.value} was challenged by {challenger.display_name} - bluff caught! (revealed {', '.join(challenge_result[1])})"
+                        description=f"{actor_name}'s {action.value} was challenged by {challenger_name.display_name} - bluff caught! (revealed {', '.join(challenge_result[1])})"
                     )
                 else:
                     # Challenge failed - challenger loses influence
                     return ActionResult(
-                        actor=actor.display_name,
+                        actor=actor_name,
                         action=action,
                         target=target_name,
                         outcome=ResolutionOutcome.CHALLENGED_WON,
                         cards_revealed=challenge_result[1],
                         coins_transferred=0,
-                        description=f"{actor.display_name}'s {action.value} was challenged by {challenger.display_name} - challenge failed! ({challenger.display_name} revealed {', '.join(challenge_result[1])})"
+                        description=f"{actor_name}'s {action.value} was challenged by {challenger_name.display_name} - challenge failed! ({challenger_name.display_name} revealed {', '.join(challenge_result[1])})"
                     )
         
         # Process blocks (if action wasn't challenged)
         if blocks and action in BLOCK_ROLES:
             block = blocks[0]  # First blocker
-            blocker = players_by_name.get(block.reactor_display_name)
+            blocker_tuple = players_by_name.get(block.reactor_display_name)
             
-            if blocker:
+            if blocker_tuple:
+                blocker_user, blocker_state = blocker_tuple
+                blocker_name = blocker_user.display_name
+                
                 # Check if there's a counter-challenge to the block
                 block_challenges = [r for r in reactions 
                                    if r.reaction_type == ReactionType.CHALLENGE 
-                                   and r.actor_display_name == blocker.display_name]
+                                   and r.actor_display_name == blocker_name]
                 
                 if block_challenges:
                     # Actor challenged the block
                     block_role = CardType(block.block_with_role.lower()) if block.block_with_role else None
                     
-                    if block_role and block_role in (blocker.card_types or []):
+                    if block_role and block_role in (blocker_state.card_types or []):
                         # Blocker has the card - block succeeds, actor loses influence
-                        revealed = ActionResolutionService._player_loses_influence(actor, session.session_id)
+                        revealed = ActionResolutionService._player_loses_influence(actor_state, session.session_id)
                         return ActionResult(
-                            actor=actor.display_name,
+                            actor=actor_name,
                             action=action,
                             target=target_name,
                             outcome=ResolutionOutcome.BLOCKED,
                             cards_revealed=revealed,
                             coins_transferred=0,
-                            description=f"{actor.display_name}'s {action.value} was blocked by {blocker.display_name} (challenged and proved {block.block_with_role})"
+                            description=f"{actor_name}'s {action.value} was blocked by {blocker_name} (challenged and proved {block.block_with_role})"
                         )
                     else:
                         # Blocker was bluffing - block fails
-                        revealed = ActionResolutionService._player_loses_influence(blocker, session.session_id)
+                        revealed = ActionResolutionService._player_loses_influence(blocker_state, session.session_id)
                         # Continue to apply action effects below
                 else:
                     # Block not challenged - it succeeds
                     # Deduct coins if action had a cost (assassination)
                     if action == ToBeInitiated.ACT_ASSASSINATION:
-                        actor.coins -= 3
+                        actor_state.coins -= 3
                     
                     return ActionResult(
-                        actor=actor.display_name,
+                        actor=actor_name,
                         action=action,
                         target=target_name,
                         outcome=ResolutionOutcome.BLOCKED,
                         cards_revealed=[],
                         coins_transferred=0,
-                        description=f"{actor.display_name}'s {action.value} was blocked by {blocker.display_name} (claimed {block.block_with_role})"
+                        description=f"{actor_name}'s {action.value} was blocked by {blocker_name} (claimed {block.block_with_role})"
                     )
         
         # No successful challenge or block - apply action effects
         return ActionResolutionService._apply_action_effects(
             session=session,
-            actor=actor,
+            actor_name=actor_name,
+            actor_state=actor_state,
             action=action,
-            target=target,
+            target_name=target_name,
+            target_state=target_state,
             upgrade=upgrade
         )
     
     @staticmethod
     def _resolve_challenge(
         session: GameSession,
-        actor: Player,
+        actor_name: str,
+        actor_state: PlayerGameState,
         action: ToBeInitiated,
-        challenger: Player,
+        challenger_name: str,
+        challenger_state: PlayerGameState,
         players_by_name: dict
     ) -> Tuple[bool, List[str]]:
         """
@@ -270,9 +299,11 @@ class ActionResolutionService:
         
         Args:
             session: Game session
-            actor: Player whose action was challenged
+            actor_name: Display name of player whose action was challenged
+            actor_state: Game state of player whose action was challenged
             action: The action that was challenged
-            challenger: Player making the challenge
+            challenger_name: Display name of player making the challenge
+            challenger_state: Game state of player making the challenge
             players_by_name: All players by name
         
         Returns:
@@ -284,36 +315,36 @@ class ActionResolutionService:
             # Action can't be challenged (income, foreign aid, coup)
             return False, []
         
-        actor_cards = actor.card_types or []
+        actor_cards = actor_state.card_types or []
         
         if required_role in actor_cards:
             # Actor has the card - challenge fails
             # Challenger loses influence
-            revealed = ActionResolutionService._player_loses_influence(challenger, session.session_id)
+            revealed = ActionResolutionService._player_loses_influence(challenger_state, session.session_id)
             
             # Actor shows card and gets a new one
-            ActionResolutionService._swap_revealed_card(actor, required_role, session.session_id)
+            ActionResolutionService._swap_revealed_card(actor_state, required_role, session.session_id)
             
             return False, revealed
         else:
             # Actor was bluffing - challenge succeeds
             # Actor loses influence
-            revealed = ActionResolutionService._player_loses_influence(actor, session.session_id)
+            revealed = ActionResolutionService._player_loses_influence(actor_state, session.session_id)
             return True, revealed
     
     @staticmethod
-    def _player_loses_influence(player: Player, session_id: str) -> List[str]:
+    def _player_loses_influence(game_state: PlayerGameState, session_id: str) -> List[str]:
         """
         Make a player lose one influence (reveal a card).
         
         Returns list of revealed card names.
         """
-        if not player.card_types:
+        if not game_state.card_types:
             return []
         
         # Remove first card (in real game, player chooses)
-        lost_card = player.card_types[0]
-        player.card_types = player.card_types[1:]
+        lost_card = game_state.card_types[0]
+        game_state.card_types = game_state.card_types[1:]
         
         # Add to session's revealed cards
         session = GameSession.query.filter_by(session_id=session_id).first()
@@ -325,14 +356,14 @@ class ActionResolutionService:
         return [lost_card.value]
     
     @staticmethod
-    def _swap_revealed_card(player: Player, revealed_card: CardType, session_id: str):
+    def _swap_revealed_card(game_state: PlayerGameState, revealed_card: CardType, session_id: str):
         """
         Swap a revealed card for a new one from the deck.
         
         Used when a player proves they have a card during a challenge.
         """
         # Remove the revealed card
-        cards = list(player.card_types or [])
+        cards = list(game_state.card_types or [])
         if revealed_card in cards:
             cards.remove(revealed_card)
         
@@ -344,14 +375,16 @@ class ActionResolutionService:
         # Return the revealed card to deck
         DeckService.return_card(session_id, revealed_card)
         
-        player.card_types = cards
+        game_state.card_types = cards
     
     @staticmethod
     def _apply_action_effects(
         session: GameSession,
-        actor: Player,
+        actor_name: str,
+        actor_state: PlayerGameState,
         action: ToBeInitiated,
-        target: Optional[Player],
+        target_name: Optional[str],
+        target_state: Optional[PlayerGameState],
         upgrade: Optional[ToBeInitiatedUpgradeDetails]
     ) -> ActionResult:
         """Apply the effects of a successful action."""
@@ -362,54 +395,54 @@ class ActionResolutionService:
         description = ""
         
         if action == ToBeInitiated.ACT_INCOME:
-            actor.coins += 1
-            description = f"{actor.display_name} took income (+1 coin)"
+            actor_state.coins += 1
+            description = f"{actor_name} took income (+1 coin)"
         
         elif action == ToBeInitiated.ACT_FOREIGN_AID:
-            actor.coins += 2
-            description = f"{actor.display_name} took foreign aid (+2 coins)"
+            actor_state.coins += 2
+            description = f"{actor_name} took foreign aid (+2 coins)"
         
         elif action == ToBeInitiated.ACT_TAX:
-            actor.coins += 3
-            description = f"{actor.display_name} collected tax (+3 coins)"
+            actor_state.coins += 3
+            description = f"{actor_name} collected tax (+3 coins)"
         
         elif action == ToBeInitiated.ACT_STEAL:
-            if target:
-                steal_amount = min(2, target.coins)
-                target.coins -= steal_amount
-                actor.coins += steal_amount
+            if target_state:
+                steal_amount = min(2, target_state.coins)
+                target_state.coins -= steal_amount
+                actor_state.coins += steal_amount
                 coins_transferred = steal_amount
-                description = f"{actor.display_name} stole {steal_amount} coins from {target.display_name}"
+                description = f"{actor_name} stole {steal_amount} coins from {target_name}"
             else:
                 outcome = ResolutionOutcome.FAILED
-                description = f"{actor.display_name}'s steal failed (no target)"
+                description = f"{actor_name}'s steal failed (no target)"
         
         elif action == ToBeInitiated.ACT_ASSASSINATION:
-            actor.coins -= 3
-            if target and target.card_types:
+            actor_state.coins -= 3
+            if target_state and target_state.card_types:
                 # Determine which card to remove
-                target_card = target.card_types[0]
+                target_card = target_state.card_types[0]
                 if upgrade and upgrade.assassination_priority:
                     priority = upgrade.assassination_priority
-                    if priority in target.card_types:
+                    if priority in target_state.card_types:
                         target_card = priority
                 
-                revealed = ActionResolutionService._player_loses_influence(target, session.session_id)
+                revealed = ActionResolutionService._player_loses_influence(target_state, session.session_id)
                 cards_revealed = revealed
-                description = f"{actor.display_name} assassinated {target.display_name} (revealed {', '.join(revealed)})"
+                description = f"{actor_name} assassinated {target_name} (revealed {', '.join(revealed)})"
             else:
                 outcome = ResolutionOutcome.FAILED
-                description = f"{actor.display_name}'s assassination failed (no valid target)"
+                description = f"{actor_name}'s assassination failed (no valid target)"
         
         elif action == ToBeInitiated.ACT_COUP:
-            actor.coins -= 7
-            if target and target.card_types:
-                revealed = ActionResolutionService._player_loses_influence(target, session.session_id)
+            actor_state.coins -= 7
+            if target_state and target_state.card_types:
+                revealed = ActionResolutionService._player_loses_influence(target_state, session.session_id)
                 cards_revealed = revealed
-                description = f"{actor.display_name} couped {target.display_name} (revealed {', '.join(revealed)})"
+                description = f"{actor_name} couped {target_name} (revealed {', '.join(revealed)})"
             else:
                 outcome = ResolutionOutcome.FAILED
-                description = f"{actor.display_name}'s coup failed (no valid target)"
+                description = f"{actor_name}'s coup failed (no valid target)"
         
         elif action == ToBeInitiated.ACT_SWAP_INFLUENCE:
             # Draw 2 cards, return 2 cards
@@ -421,26 +454,26 @@ class ActionResolutionService:
             
             # For now, just add new cards (player should choose which to keep)
             # In full implementation, this would be a separate card selection phase
-            current_cards = list(actor.card_types or [])
-            actor.card_types = current_cards + new_cards
+            current_cards = list(actor_state.card_types or [])
+            actor_state.card_types = current_cards + new_cards
             
-            description = f"{actor.display_name} swapped influence (drew {len(new_cards)} cards)"
+            description = f"{actor_name} swapped influence (drew {len(new_cards)} cards)"
             
-            if upgrade and upgrade.trigger_identity_crisis and target:
+            if upgrade and upgrade.trigger_identity_crisis and target_state:
                 # Also swap target's cards
                 target_new = []
                 for _ in range(2):
                     card = DeckService.draw_card(session.session_id)
                     if card:
                         target_new.append(card)
-                target_current = list(target.card_types or [])
-                target.card_types = target_current + target_new
-                description += f" and triggered identity crisis on {target.display_name}"
+                target_current = list(target_state.card_types or [])
+                target_state.card_types = target_current + target_new
+                description += f" and triggered identity crisis on {target_name}"
         
         return ActionResult(
-            actor=actor.display_name,
+            actor=actor_name,
             action=action,
-            target=target.display_name if target else None,
+            target=target_name,
             outcome=outcome,
             cards_revealed=cards_revealed,
             coins_transferred=coins_transferred,

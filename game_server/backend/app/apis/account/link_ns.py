@@ -5,12 +5,13 @@ Endpoints for explicit account linking via email confirmation.
 """
 
 import logging
-from flask import request, render_template, make_response
+
+from flask import g, make_response, render_template, request
 from flask_restx import Namespace, Resource
 
 from app.models.rest_api_models.account_models import create_link_models
 from app.services.account_link_service import AccountLinkService
-from app.services.auth_service import AuthService
+from app.services.auth_service import jwt_required
 
 logger = logging.getLogger(__name__)
 
@@ -22,34 +23,6 @@ link_ns = Namespace(
 
 # Create models
 models = create_link_models(link_ns)
-
-
-# =============================================
-# JWT Authentication Decorators
-# =============================================
-
-def jwt_required(f):
-    """Decorator to require JWT authentication."""
-    def wrapper(*args, **kwargs):
-        auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return {'error': 'Missing or invalid Authorization header'}, 401
-        
-        token = auth_header.split(' ')[1]
-        payload = AuthService.verify_access_token(token)
-        
-        if not payload:
-            return {'error': 'Invalid or expired token'}, 401
-        
-        # Add player info to request context
-        request.player_name = payload.get('sub')
-        request.player_type = payload.get('player_type')
-        
-        return f(*args, **kwargs)
-    
-    wrapper.__name__ = f.__name__
-    wrapper.__doc__ = f.__doc__
-    return wrapper
 
 
 # =============================================
@@ -83,7 +56,7 @@ class LinkAccount(Resource):
             return {'error': 'target_provider and target_email are required'}, 400
         
         link_request, error = AccountLinkService.initiate_link(
-            player_display_name=request.player_name,
+            player_display_name=g.current_display_name,
             target_provider=target_provider,
             target_email=target_email,
             primary_email=primary_email
@@ -102,7 +75,7 @@ class LinkAccount(Resource):
         """
         Get pending link requests for the authenticated user.
         """
-        pending = AccountLinkService.get_pending_requests(request.player_name)
+        pending = AccountLinkService.get_pending_requests(g.current_display_name)
         
         return {
             'pending_requests': [req.to_dict() for req in pending]
@@ -167,7 +140,7 @@ class CancelLink(Resource):
         
         success, error = AccountLinkService.cancel_request(
             request_id=request_id,
-            player_display_name=request.player_name
+            player_display_name=g.current_display_name
         )
         
         if not success:

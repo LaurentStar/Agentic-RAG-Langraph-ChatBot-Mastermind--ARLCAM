@@ -7,7 +7,7 @@ Handles game session creation, player joining, and session management.
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from app.constants import (
     CardType,
@@ -19,7 +19,8 @@ from app.constants import (
     PHASE_ORDER,
 )
 from app.extensions import db
-from app.models.postgres_sql_db_models import BroadcastDestination, GameSession, Player
+from app.models.postgres_sql_db_models import BroadcastDestination, GameSession, UserAccount, PlayerGameState
+from app.crud import UserAccountCRUD, PlayerGameStateCRUD, GameSessionCRUD
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class SessionService:
         return query.order_by(GameSession.created_at.desc()).all()
     
     @staticmethod
-    def join_session(session_id: str, player_display_name: str) -> Player:
+    def join_session(session_id: str, player_display_name: str) -> PlayerGameState:
         """
         Add a player to a session.
         
@@ -145,15 +146,15 @@ class SessionService:
             player_display_name: Player joining
         
         Returns:
-            Updated Player object
+            Created/Updated PlayerGameState object
         
         Raises:
             ValueError: If session is full, started, or player already in session
         """
         session = SessionService.get_session_or_404(session_id)
-        player = Player.query.filter_by(display_name=player_display_name).first()
+        user = UserAccountCRUD.get_by_display_name(player_display_name)
         
-        if not player:
+        if not user:
             raise ValueError(f"Player '{player_display_name}' not found")
         
         if session.is_game_started:
@@ -162,19 +163,30 @@ class SessionService:
         if session.is_full:
             raise ValueError("Session is full")
         
-        if player.session_id and player.session_id != session_id:
-            existing_session = GameSession.query.get(player.session_id)
+        # Check if user already has an active game state in another session
+        existing_state = PlayerGameStateCRUD.get_active_for_user(user.user_id)
+        if existing_state and existing_state.session_id != session_id:
+            existing_session = GameSession.query.get(existing_state.session_id)
             if existing_session and existing_session.status in (SessionStatus.WAITING, SessionStatus.ACTIVE):
                 raise ValueError("Player is already in another session")
         
-        player.session_id = session_id
-        player.player_statuses = [PlayerStatus.WAITING]
+        # Create or update game state for this session
+        game_state = PlayerGameStateCRUD.get_by_user_and_session(user.user_id, session_id)
+        if not game_state:
+            game_state = PlayerGameStateCRUD.create(
+                user_id=user.user_id,
+                session_id=session_id,
+                player_statuses=[PlayerStatus.WAITING],
+                coins=2
+            )
+        else:
+            game_state.player_statuses = [PlayerStatus.WAITING]
+            db.session.commit()
         
-        db.session.commit()
-        return player
+        return game_state
     
     @staticmethod
-    def leave_session(player_display_name: str) -> Player:
+    def leave_session(player_display_name: str) -> Optional[PlayerGameState]:
         """
         Remove a player from their current session.
         
@@ -182,25 +194,30 @@ class SessionService:
             player_display_name: Player leaving
         
         Returns:
-            Updated Player object
+            Updated PlayerGameState object or None if player has no active game
         """
-        player = Player.query.filter_by(display_name=player_display_name).first()
+        user = UserAccountCRUD.get_by_display_name(player_display_name)
         
-        if not player:
+        if not user:
             raise ValueError(f"Player '{player_display_name}' not found")
         
-        if player.session_id:
-            session = SessionService.get_session(player.session_id)
-            if session and session.is_game_started:
-                raise ValueError("Cannot leave a game that has started")
+        game_state = PlayerGameStateCRUD.get_active_for_user(user.user_id)
         
-        player.session_id = None
-        player.player_statuses = [PlayerStatus.WAITING]
-        player.card_types = []
-        player.coins = 2
+        if not game_state:
+            return None  # Player not in any session
+        
+        session = SessionService.get_session(game_state.session_id)
+        if session and session.is_game_started:
+            raise ValueError("Cannot leave a game that has started")
+        
+        # Clear the game state (leave session)
+        game_state.session_id = None
+        game_state.player_statuses = [PlayerStatus.WAITING]
+        game_state.card_types = []
+        game_state.coins = 2
         
         db.session.commit()
-        return player
+        return game_state
     
     @staticmethod
     def start_session(session_id: str) -> GameSession:
@@ -221,8 +238,9 @@ class SessionService:
         if session.is_game_started:
             raise ValueError("Game has already started")
         
-        players = Player.query.filter_by(session_id=session_id).all()
-        if len(players) < 2:
+        # Get all players in session with their user accounts
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
+        if len(player_data) < 2:
             raise ValueError("Need at least 2 players to start")
         
         # Initialize deck (3 of each card = 15 total)
@@ -239,11 +257,11 @@ class SessionService:
         random.shuffle(deck)
         
         # Deal 2 cards to each player
-        for player in players:
-            player.card_types = [deck.pop(), deck.pop()]
-            player.player_statuses = [PlayerStatus.ALIVE]
-            player.coins = 2
-            player.to_be_initiated = []
+        for user, game_state in player_data:
+            game_state.card_types = [deck.pop(), deck.pop()]
+            game_state.player_statuses = [PlayerStatus.ALIVE]
+            game_state.coins = 2
+            game_state.to_be_initiated = []
         
         # Update session state
         session.deck_state = deck
@@ -258,12 +276,15 @@ class SessionService:
         db.session.commit()
         
         # Register LLM agents with lang_graph_server
-        SessionService._register_llm_agents_with_langgraph(session_id, players)
+        SessionService._register_llm_agents_with_langgraph(session_id, player_data)
         
         return session
     
     @staticmethod
-    def _register_llm_agents_with_langgraph(session_id: str, players: List[Player]) -> None:
+    def _register_llm_agents_with_langgraph(
+        session_id: str,
+        player_data: List[Tuple[UserAccount, PlayerGameState]]
+    ) -> None:
         """
         Register LLM agents with the lang_graph_server.
         
@@ -272,12 +293,13 @@ class SessionService:
         
         Args:
             session_id: Game session ID
-            players: List of all players in the session
+            player_data: List of (UserAccount, PlayerGameState) tuples
         """
+        from app.constants import PlayerType
         from app.services.lang_graph_client import LangGraphClient
         
         # Filter to LLM agents only
-        llm_agents = [p for p in players if p.player_type == "llm_agent"]
+        llm_agents = [(u, gs) for u, gs in player_data if u.player_type == PlayerType.LLM_AGENT]
         
         if not llm_agents:
             logger.info(f"[SESSION] No LLM agents to register for session {session_id}")
@@ -286,16 +308,16 @@ class SessionService:
         # Build agent configs
         agent_configs = [
             {
-                "agent_id": agent.display_name,
-                "play_style": "balanced",  # Could be stored in player profile
-                "personality": "friendly",  # Could be stored in player profile
-                "coins": agent.coins,
+                "agent_id": user.display_name,
+                "play_style": "balanced",  # Could be stored in agent profile
+                "personality": "friendly",  # Could be stored in agent profile
+                "coins": game_state.coins,
             }
-            for agent in llm_agents
+            for user, game_state in llm_agents
         ]
         
         # Get all player names for context
-        players_alive = [p.display_name for p in players if p.is_alive]
+        players_alive = [u.display_name for u, gs in player_data if gs.is_alive]
         
         logger.info(
             f"[SESSION] Registering {len(llm_agents)} LLM agents for session {session_id}: "
@@ -336,11 +358,11 @@ class SessionService:
         session.is_game_started = False
         
         # Clear player session associations
-        players = Player.query.filter_by(session_id=session_id).all()
-        for player in players:
-            player.session_id = None
-            player.card_types = []
-            player.player_statuses = [PlayerStatus.WAITING]
+        game_states = PlayerGameStateCRUD.get_by_session(session_id)
+        for game_state in game_states:
+            game_state.session_id = None
+            game_state.card_types = []
+            game_state.player_statuses = [PlayerStatus.WAITING]
         
         db.session.commit()
         
@@ -596,13 +618,13 @@ class SessionService:
         if not session:
             return {'error': 'Session not found'}
         
-        # Get players in session
-        players = Player.query.filter_by(session_id=session_id).all()
+        # Get players in session with user accounts
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
         
         # Calculate stats
-        total_players = len(players)
-        players_alive = [p for p in players if p.is_alive]
-        players_dead = [p for p in players if not p.is_alive]
+        total_players = len(player_data)
+        players_alive = [(u, gs) for u, gs in player_data if gs.is_alive]
+        players_dead = [(u, gs) for u, gs in player_data if not gs.is_alive]
         
         # Calculate remaining turns
         remaining_turns = None
@@ -639,8 +661,8 @@ class SessionService:
             'max_players': session.max_players,
             'players_alive': len(players_alive),
             'players_dead': len(players_dead),
-            'players_alive_names': [p.display_name for p in players_alive],
-            'players_dead_names': [p.display_name for p in players_dead],
+            'players_alive_names': [u.display_name for u, gs in players_alive],
+            'players_dead_names': [u.display_name for u, gs in players_dead],
             
             # Revealed cards
             'revealed_cards_count': len(session.revealed_cards or []),
@@ -824,17 +846,17 @@ class SessionService:
             List of winner display names
         """
         session = SessionService.get_session_or_404(session_id)
-        players = Player.query.filter_by(session_id=session_id).all()
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
         
-        if not players:
+        if not player_data:
             return []
         
         # Get alive players
-        alive_players = [p for p in players if p.is_alive]
+        alive_players = [(u, gs) for u, gs in player_data if gs.is_alive]
         
         # If only one player alive, they're the winner
         if len(alive_players) == 1:
-            return [alive_players[0].display_name]
+            return [alive_players[0][0].display_name]
         
         # If no players alive (shouldn't happen), return empty
         if len(alive_players) == 0:
@@ -842,10 +864,10 @@ class SessionService:
         
         # Calculate scores: (card_count, coins, display_name)
         player_scores = []
-        for player in alive_players:
-            card_count = len(player.card_types or [])
-            coins = player.coins or 0
-            player_scores.append((card_count, coins, player.display_name))
+        for user, game_state in alive_players:
+            card_count = len(game_state.card_types or [])
+            coins = game_state.coins or 0
+            player_scores.append((card_count, coins, user.display_name))
         
         # Sort by card count (desc), then coins (desc)
         player_scores.sort(key=lambda x: (x[0], x[1]), reverse=True)
@@ -917,14 +939,14 @@ class SessionService:
         session = SessionService.get_session_or_404(session_id)
         
         # Clear player session associations
-        players = Player.query.filter_by(session_id=session_id).all()
-        for player in players:
-            player.session_id = None
-            player.card_types = []
-            player.player_statuses = [PlayerStatus.WAITING]
-            player.coins = 2
-            player.to_be_initiated = []
-            player.target_display_name = None
+        game_states = PlayerGameStateCRUD.get_by_session(session_id)
+        for game_state in game_states:
+            game_state.session_id = None
+            game_state.card_types = []
+            game_state.player_statuses = [PlayerStatus.WAITING]
+            game_state.coins = 2
+            game_state.to_be_initiated = []
+            game_state.target_display_name = None
         
         # Reset session state
         session.status = SessionStatus.WAITING
@@ -979,15 +1001,15 @@ class SessionService:
         EndingPhaseJob.cancel(session_id)
         
         # Get current players (keep them in the session)
-        players = Player.query.filter_by(session_id=session_id).all()
+        game_states = PlayerGameStateCRUD.get_by_session(session_id)
         
         # Reset player states but keep them in the session
-        for player in players:
-            player.card_types = []
-            player.player_statuses = [PlayerStatus.WAITING]
-            player.coins = 2
-            player.to_be_initiated = []
-            player.target_display_name = None
+        for game_state in game_states:
+            game_state.card_types = []
+            game_state.player_statuses = [PlayerStatus.WAITING]
+            game_state.coins = 2
+            game_state.to_be_initiated = []
+            game_state.target_display_name = None
         
         # Reset session state but keep players and increment rematch count
         session.status = SessionStatus.WAITING
@@ -1004,7 +1026,7 @@ class SessionService:
         
         logger.info(
             f"[SESSION] Session {session_id} rematch requested. "
-            f"Rematch #{session.rematch_count}, {len(players)} players retained."
+            f"Rematch #{session.rematch_count}, {len(game_states)} players retained."
         )
         
         return session
@@ -1029,11 +1051,11 @@ class SessionService:
             raise ValueError("Session is not in ENDING phase")
         
         # Clear player session associations
-        players = Player.query.filter_by(session_id=session_id).all()
-        for player in players:
-            player.session_id = None
-            player.card_types = []
-            player.player_statuses = [PlayerStatus.WAITING]
+        game_states = PlayerGameStateCRUD.get_by_session(session_id)
+        for game_state in game_states:
+            game_state.session_id = None
+            game_state.card_types = []
+            game_state.player_statuses = [PlayerStatus.WAITING]
         
         # Mark as completed
         session.status = SessionStatus.COMPLETED

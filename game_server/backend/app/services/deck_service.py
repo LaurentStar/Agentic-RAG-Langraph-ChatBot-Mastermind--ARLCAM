@@ -7,9 +7,10 @@ Handles card deck management, dealing, shuffling, and returns.
 import random
 from typing import Dict, List, Optional
 
-from app.constants import CardType
+from app.constants import CardType, PlayerStatus
 from app.extensions import db
-from app.models.postgres_sql_db_models import GameSession, Player
+from app.models.postgres_sql_db_models import GameSession
+from app.crud import PlayerGameStateCRUD
 
 
 class DeckService:
@@ -62,8 +63,8 @@ class DeckService:
         if not session:
             raise ValueError(f"Session '{session_id}' not found")
         
-        players = Player.query.filter_by(session_id=session_id).all()
-        if not players:
+        player_data = PlayerGameStateCRUD.get_session_with_users(session_id)
+        if not player_data:
             raise ValueError("No players in session")
         
         # Initialize deck if empty
@@ -73,15 +74,15 @@ class DeckService:
             random.shuffle(deck)
         
         # Check if enough cards
-        if len(deck) < len(players) * 2:
+        if len(deck) < len(player_data) * 2:
             raise ValueError("Not enough cards in deck")
         
         # Deal 2 cards to each player
         dealt = {}
-        for player in players:
+        for user, game_state in player_data:
             cards = [deck.pop(), deck.pop()]
-            player.card_types = cards
-            dealt[player.display_name] = cards
+            game_state.card_types = cards
+            dealt[user.display_name] = cards
         
         session.deck_state = deck
         db.session.commit()
@@ -186,18 +187,20 @@ class DeckService:
             card: Card to reveal
         """
         session = GameSession.query.filter_by(session_id=session_id).first()
-        player = Player.query.filter_by(display_name=player_display_name).first()
+        game_state = PlayerGameStateCRUD.get_by_display_name_and_session(
+            player_display_name, session_id
+        )
         
-        if not session or not player:
+        if not session or not game_state:
             raise ValueError("Session or player not found")
         
         # Remove card from player's hand
-        cards = list(player.card_types or [])
+        cards = list(game_state.card_types or [])
         if card not in cards:
             raise ValueError(f"Player does not have card {card.value}")
         
         cards.remove(card)
-        player.card_types = cards
+        game_state.card_types = cards
         
         # Add to revealed cards
         revealed = list(session.revealed_cards or [])
@@ -205,14 +208,13 @@ class DeckService:
         session.revealed_cards = revealed
         
         # Update player status if dead
-        from app.constants import PlayerStatus
         if not cards:
-            statuses = list(player.player_statuses or [])
+            statuses = list(game_state.player_statuses or [])
             if PlayerStatus.ALIVE in statuses:
                 statuses.remove(PlayerStatus.ALIVE)
             if PlayerStatus.DEAD not in statuses:
                 statuses.append(PlayerStatus.DEAD)
-            player.player_statuses = statuses
+            game_state.player_statuses = statuses
         
         db.session.commit()
     
@@ -233,13 +235,15 @@ class DeckService:
             cards_to_keep: Cards to keep in hand
         """
         session = GameSession.query.filter_by(session_id=session_id).first()
-        player = Player.query.filter_by(display_name=player_display_name).first()
+        game_state = PlayerGameStateCRUD.get_by_display_name_and_session(
+            player_display_name, session_id
+        )
         
-        if not session or not player:
+        if not session or not game_state:
             raise ValueError("Session or player not found")
         
         # Update player's hand
-        player.card_types = cards_to_keep
+        game_state.card_types = cards_to_keep
         
         # Return cards to deck
         DeckService.return_cards(session_id, cards_to_return, shuffle=True)
